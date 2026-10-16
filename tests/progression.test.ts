@@ -160,6 +160,33 @@ describe('onboarding (first 10 seconds)', () => {
   });
 });
 
+describe('next-wave intel', () => {
+  it('flags which portals the upcoming wave will attack from', async () => {
+    const g = await createGame();
+    g.startRun(D.COMMANDER);
+    g.tutorial = null;
+    expect([...g.getUpcomingIntel()!.portals.keys()]).toEqual([0]);          // wave 1: west only
+    g.wave = 1;
+    expect([...g.getUpcomingIntel()!.portals.keys()]).toEqual([0, 1]);       // wave 2: + northeast
+    g.wave = 5;
+    expect([...g.getUpcomingIntel()!.portals.keys()]).toEqual([0, 2]);       // wave 6: west + southeast
+    g.wave = 9;
+    expect([...g.getUpcomingIntel()!.portals.keys()]).toEqual([0, 1, 2]);    // wave 10 boss: all three
+    expect(g.getUpcomingIntel()!.portals.get(0)).toBe(1);                    // the Colossus itself
+    g.wave = 20;
+    expect(g.getUpcomingIntel()).toBeNull();                                  // campaign complete
+  });
+
+  it('hides intel during combat', async () => {
+    const g = await createGame();
+    g.startRun(D.COMMANDER);
+    g.tryPlaceTower(T.BOLT, -1, -1);
+    step(g, 6);
+    expect(g.state).toBe(GS.COMBAT_PHASE);
+    expect(g.getUpcomingIntel()).toBeNull();
+  });
+});
+
 describe('boss encounters', () => {
   it('Iron Colossus: shield phase at 65%, final push at 30% with escorts', async () => {
     const g = await createGame();

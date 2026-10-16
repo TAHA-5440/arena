@@ -39,7 +39,7 @@ Routes are permanently non-buildable. Every wave is an authored encounter (see `
 
 ## Controls
 
-- **Build:** pick a tower in the shop, click a hex. Ghost + range preview shown.
+- **Build:** pick a tower in the shop, click a hex. Ghost + range preview shown. During the build phase the board itself tells you where the next attack comes from: the targeted portals carry a pulsing "▼ WAVE N — X HOSTILES INBOUND" badge, those routes glow amber, and idle lanes dim (also listed in the INCOMING panel and the START WAVE button).
 - **Inspect:** click a placed tower → upgrade, sell, choose Lv3 specialization, set targeting (FIRST/LAST/STRONG/WEAK/FAST).
 - **Wave:** `SPACE` or START WAVE. Speed `1–3×` (`+`/`-` or button).
 - **Abilities:** `Z` EMP freeze · `X` Orbital Strike (click to aim) · `V` Overdrive.

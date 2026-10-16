@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WAVES, getWaveDef, actForWave, routesForWave, waveBonusEnergy, generateEndlessWave } from '../src/data/waves';
+import { WAVES, getWaveDef, actForWave, routesForWave, waveBonusEnergy, generateEndlessWave, wavePortalCounts } from '../src/data/waves';
 import { TOWER_DEFS, TOWER_ORDER } from '../src/data/towers';
 import { EnemyType as E, TowerType as T, Difficulty as D } from '../src/types/game';
 
@@ -148,6 +148,27 @@ describe('campaign wave data', () => {
       const w = getWaveDef(first[t]!)!;
       expect(w.callouts?.length, `${t} @ wave ${first[t]}`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('next-wave intel (where the attack comes from)', () => {
+  it('reports the attacking portals and enemy counts per wave', () => {
+    expect(wavePortalCounts(getWaveDef(1)!)).toEqual([{ portal: 0, count: 5 }]);
+    expect(wavePortalCounts(getWaveDef(2)!)).toEqual([{ portal: 0, count: 6 }, { portal: 1, count: 3 }]);
+    expect(wavePortalCounts(getWaveDef(6)!)).toEqual([{ portal: 0, count: 6 }, { portal: 2, count: 7 }]);
+    expect(wavePortalCounts(getWaveDef(10)!)).toEqual([{ portal: 0, count: 1 }, { portal: 1, count: 8 }, { portal: 2, count: 3 }]);
+    expect(wavePortalCounts(getWaveDef(20)!)).toEqual([{ portal: 0, count: 9 }, { portal: 1, count: 7 }, { portal: 2, count: 1 }]);
+  });
+
+  it('includes endless bosses exactly once (they live in groups)', () => {
+    const def = generateEndlessWave(25, D.COMMANDER, 42);
+    const bossGroup = def.groups.filter(g => g.type === E.TITAN || g.type === E.BOSS);
+    expect(bossGroup.length).toBe(1);
+    expect(bossGroup[0].count).toBe(1);
+    const intel = wavePortalCounts(def);
+    const total = intel.reduce((m, e) => m + e.count, 0);
+    const groupsTotal = def.groups.reduce((m, g) => m + g.count, 0);
+    expect(total).toBe(groupsTotal);
   });
 });
 

@@ -107,7 +107,12 @@ export class UIManager {
         if (!def) { btn.disabled = true; btn.textContent = 'CAMPAIGN COMPLETE'; }
         else {
           btn.disabled = false;
-          btn.textContent = def.boss ? `START WAVE ${def.number} — BOSS` : `START WAVE ${def.number}`;
+          const intel = g.getUpcomingIntel();
+          const letters = ['A', 'B', 'C'];
+          const lanes = intel ? [...intel.portals.keys()].sort().map(i => letters[i]).join('/') : '';
+          btn.textContent = def.boss
+            ? `START WAVE ${def.number} — BOSS${lanes ? ' VIA ' + lanes : ''}`
+            : `START WAVE ${def.number}${lanes ? ' · VIA ' + lanes : ''}`;
         }
       }
     }

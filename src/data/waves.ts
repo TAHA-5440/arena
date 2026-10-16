@@ -195,6 +195,14 @@ export function getWaveDef(n: number): WaveDef | undefined {
   return WAVES.find(w => w.number === n);
 }
 
+/** Which portals a wave attacks from, with enemy counts (next-wave intel). */
+export function wavePortalCounts(def: WaveDef): { portal: number; count: number }[] {
+  const m = new Map<number, number>();
+  for (const g of def.groups) m.set(g.portal, (m.get(g.portal) || 0) + g.count);
+  if (def.boss && !def.endless) m.set(def.boss.portal, (m.get(def.boss.portal) || 0) + 1);
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([portal, count]) => ({ portal, count }));
+}
+
 // ---------------------------------------------------------------------------
 // Difficulty scaling
 // ---------------------------------------------------------------------------

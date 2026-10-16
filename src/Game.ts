@@ -7,7 +7,7 @@ import { HexBoard } from './grid/HexBoard';
 import { axialToPixel, pixelToAxial, hexDistance, HEX_RADIUS, HEX_STEP } from './grid/HexMath';
 import { TOWER_DEFS, TOWER_DESC, TOWER_ORDER } from './data/towers';
 import { ENEMY_DEFS, SPLIT_CHILD } from './data/enemies';
-import { WAVES, getWaveDef, actForWave, routesForWave, waveBonusEnergy, ACTS, generateEndlessWave, difficultyMul, scaleGroups } from './data/waves';
+import { WAVES, getWaveDef, actForWave, routesForWave, waveBonusEnergy, ACTS, generateEndlessWave, difficultyMul, scaleGroups, wavePortalCounts } from './data/waves';
 import type { WaveDef, SpawnGroup } from './data/waves';
 import { BALANCE } from './data/balance';
 import type { TowerInstance, EnemyInstance, Projectile, GameState, Difficulty, TowerType, EnemyType, TargetMode, SaveData, Settings, RunStats } from './types/game';
@@ -403,6 +403,19 @@ export class Game {
     const def = generateEndlessWave(next, this.difficulty, this.endlessSeed);
     this.upcomingCache = { key, def };
     return def;
+  }
+
+  /**
+   * Build-phase intel: which portals/routes the upcoming wave attacks from.
+   * Returns null outside the build phase or when no wave is scheduled.
+   */
+  getUpcomingIntel(): { def: WaveDef; portals: Map<number, number> } | null {
+    if (this.state !== GS.BUILD_PHASE || this.waveActive) return null;
+    const def = this.getUpcomingWave();
+    if (!def) return null;
+    const portals = new Map<number, number>();
+    for (const e of wavePortalCounts(def)) portals.set(e.portal, e.count);
+    return { def, portals };
   }
 
   startWaveIfReady() {
@@ -1784,14 +1797,20 @@ export class Game {
 
   /** Animated chevrons along active routes. */
   drawRoutes(ctx:CanvasRenderingContext2D) {
+    const intel = this.getUpcomingIntel();
     for (let ri=0; ri<this.board.routes.length; ri++) {
       const active = ri < this.routesUnlocked;
       if (!active) continue;
       const route = this.board.routes[ri];
       const revealing = this.routeReveal && this.routeReveal.index === ri;
-      const baseAlpha = revealing ? 0.5 : 0.16;
+      let baseAlpha = revealing ? 0.5 : 0.16;
+      let color = '#FF536A';
+      if (intel && !revealing) {
+        if (intel.portals.has(ri)) { baseAlpha = 0.42; color = '#FFB547'; }
+        else baseAlpha = 0.06;
+      }
       ctx.save();
-      ctx.strokeStyle = revealing ? '#FF536A' : '#FF536A';
+      ctx.strokeStyle = color;
       for (let k=0; k<route.length-1; k++) {
         const a = axialToPixel(route[k].q, route[k].r);
         const b = axialToPixel(route[k+1].q, route[k+1].r);
@@ -1815,11 +1834,14 @@ export class Game {
   }
 
   drawPortals(ctx:CanvasRenderingContext2D) {
+    const intel = this.getUpcomingIntel();
     for (let i=0;i<this.board.portals.length;i++) {
       const portal = this.board.portals[i];
       const p = axialToPixel(portal.q, portal.r);
       const active = i < this.routesUnlocked;
       const revealing = this.routeReveal && this.routeReveal.index === i;
+      const incoming = intel?.portals.has(i);
+      const idle = !!intel && !incoming;
       ctx.save();
       ctx.translate(p.x, p.y);
       if (!active) {
@@ -1833,7 +1855,7 @@ export class Game {
         ctx.beginPath(); ctx.arc(0,0, HEX_RADIUS*0.4, 0, Math.PI*2); ctx.fill();
       } else {
         const pulse = 0.5 + 0.5*Math.sin(this.time*3 + i);
-        const bright = this.preFinal || revealing ? 1 : 0.75;
+        const bright = this.preFinal || revealing ? 1 : (idle ? 0.38 : 0.75);
         ctx.strokeStyle = `rgba(255,83,106,${(0.5+0.4*pulse)*bright})`;
         ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.arc(0,0, HEX_RADIUS*0.62 + pulse*2, 0, Math.PI*2); ctx.stroke();
@@ -1857,6 +1879,25 @@ export class Game {
         }
       }
       ctx.restore();
+      // Next-wave badge: tells the player exactly where the attack comes from
+      if (incoming && intel) {
+        const count = intel.portals.get(i)!;
+        const pulse = 0.5 + 0.5*Math.sin(this.time*4);
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,181,71,${0.35+0.45*pulse})`;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([7,5]);
+        ctx.beginPath(); ctx.arc(p.x, p.y, HEX_RADIUS*1.08 + pulse*4, 0, Math.PI*2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = `rgba(255,181,71,${0.8+0.2*pulse})`;
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText(`\u25BC WAVE ${intel.def.number}`, p.x, p.y - HEX_RADIUS - 15);
+        ctx.fillStyle = 'rgba(238,246,255,0.9)';
+        ctx.font = '10px monospace';
+        ctx.fillText(`${count} HOSTILE${count > 1 ? 'S' : ''} INBOUND`, p.x, p.y - HEX_RADIUS - 3);
+        ctx.restore();
+      }
     }
   }
 
@@ -2497,8 +2538,14 @@ export class Game {
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(238,246,255,0.65)';
       ctx.font = '12px monospace';
-      const nextDef = this.getUpcomingWave();
-      const startHint = nextDef ? (nextDef.boss ? 'FACE THE BOSS — press SPACE or START WAVE when ready' : 'Press SPACE or START WAVE when ready') : 'Campaign complete';
+      const intel = this.getUpcomingIntel();
+      let startHint = 'Campaign complete';
+      if (intel) {
+        const letters = ['A', 'B', 'C'];
+        const lanes = [...intel.portals.keys()].sort().map(i => letters[i]).join(' + ');
+        const prefix = intel.def.boss ? 'BOSS WAVE' : 'NEXT WAVE';
+        startHint = `${prefix} INCOMING VIA ROUTE ${lanes} — press SPACE or START WAVE`;
+      }
       ctx.fillText(startHint, w/2, h-20);
     }
 
