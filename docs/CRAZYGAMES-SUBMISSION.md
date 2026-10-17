@@ -304,6 +304,19 @@ why it is true of this build.
 > landscape or portrait. Runs in the browser in seconds — no download, no
 > account.
 
+*(1,489 characters, 247 words. If the portal caps the field lower, use the
+short version below — 604 characters.)*
+
+**Short version of the description (if the field is capped):**
+
+> HEX DEFENDER: LAST CORE is a hex-grid tower defence campaign. Hold a single
+> reactor core at the centre of a hexagonal battlefield while three invasion
+> routes converge on it. Six tower types, three levels each and a level-3
+> specialisation, unlocking as the acts escalate. Twenty hand-authored waves
+> across four acts, ending with the multi-phase Null Archon — then Endless
+> Mode. Three difficulties, local leaderboard, 1×–3× speed, and progress that
+> saves automatically. Mouse and keyboard on desktop, touch on mobile.
+
 ### Controls (bulleted list)
 
 > - **Build:** pick a tower in the shop, or press 1–6, then click/tap a hex.
