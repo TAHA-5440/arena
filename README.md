@@ -31,7 +31,23 @@ the privacy & terms notice.
 ```bash
 npm run package:crazygames        # -> release/hex-defender-last-core.zip
 bash scripts/make-covers.sh       # -> release/covers/cover-*.png (1920x1080, 800x1200, 800x800)
+npm run record:videos             # -> release/videos/preview-*.mp4 (1920x1080 16:9, 1080x1620 2:3)
 ```
+
+The preview videos are **real gameplay**: `scripts/record-gameplay.mjs` runs the actual game
+simulation head-less against a native Canvas 2D implementation, stages it on wave 20 (the Null
+Archon), and encodes the frames with the bundled ffmpeg — 16 s, H.264, no black bars, no cursor,
+no promotional text, real-time 1×.
+
+Everything the portal asks for lives under `release/`:
+
+| Path | What it is |
+|---|---|
+| `release/hex-defender-last-core.zip` | the upload — HTML5, `index.html` at the archive root |
+| `release/covers/` | the three mandatory cover images |
+| `release/videos/` | the two mandatory preview videos (+ a 9:16 spare) |
+| `release/screenshots/` | optional gameplay stills |
+| `release/marketing/README.md` | index of all creative assets — the "marketing creatives URL" |
 
 See `docs/CRAZYGAMES-SUBMISSION.md` for the exact submission-form answers and the
 remaining publishing checklist.
@@ -82,7 +98,7 @@ src/
   Game.ts              simulation, boss phases, acts, onboarding, rendering
   ui/UIManager.ts      shop, intel panel, toasts, menus, victory screen
 tests/                 routes, campaign data spec, boss phases, full-campaign simulation, SDK integration
-scripts/               CrazyGames packaging, cover generation, dist smoke test
+scripts/               CrazyGames packaging, cover generation, gameplay video recording, dist smoke test
 ```
 
 The combat engine is fully data-driven: waves, spawns, unlocks, boss phases and balance are editable in `src/data/` without touching the engine. All visuals are procedural Canvas 2D. All audio is synthesized with the Web Audio API — six tower identities, enemy/reactor/ability effects, and an adaptive four-act electronic soundtrack with unique boss themes. No external audio assets. Master / music / SFX / UI volumes, mute, and audio quality persist in Settings.
