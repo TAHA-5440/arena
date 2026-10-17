@@ -7,6 +7,8 @@ each field of the submission form.
 
 ## 1. Form answers
 
+### 1a. Basics
+
 | Field | Answer | Why |
 |---|---|---|
 | **Game name** | `HEX DEFENDER: LAST CORE` | 23 chars (limit 35). Byte-identical to the `<title>` in `index.html`, which is what appears in the game. |
@@ -24,6 +26,59 @@ The SDK `Data` module is already wired up behind a thin wrapper
 *"Yes, using the Data Module from the CrazyGames SDK"*, mirror the save/load
 calls in `src/Game.ts` (`saveGame` / `loadGame`) to the data module. APS
 (localStorage) is the lower-risk option and needs no changes.
+
+### 1b. Details page — in the order the portal asks
+
+| Field | Answer |
+|---|---|
+| **Category** | `Strategy` → subcategory `Defense` → `Tower Defense` |
+| **Tags** (max 5) | `Tower Defense` · `Defense` · `Top-Down` · `2D` · `Survival` |
+| **Description** | the plain-text block in §7 — **no HTML**, the editor rejects it |
+| **Controls** | the bulleted list in §7 |
+| **Google Play Store** | *leave empty* |
+| **iOS App Store** | *leave empty* |
+| **Steam** | *leave empty* |
+| **Marketing creatives URL** | `https://github.com/TAHA-5440/arena/tree/arena/6e4ea6d8-arena/release/marketing` |
+| **Cover images** | `release/covers/cover-landscape.png` (16:9) · `cover-portrait.png` (2:3) · `cover-square.png` (1:1) |
+| **Preview videos** | `release/videos/preview-landscape.mp4` (1920×1080) · `release/videos/preview-portrait.mp4` (1080×1620) |
+| **Mobile orientation** | The game works well in fullscreen. Playable in **both** landscape and portrait. |
+
+**Why these tags.** They are all real entries in the CrazyGames tag list
+(`/tags`): *Tower Defense* (128 games), *Defense* (192), *Top-Down* (298), *2D*
+(1,231) and *Survival* (401). *Strategy* is deliberately **not** a tag — on
+CrazyGames it is a **category** (`/t/strategy` redirects to `/c/strategy`), so
+it is already covered by the Category field. Spare tags to swap in if the
+picker does not offer one of the five: `Mobile`, `Mouse`, `Battle`, `Space`,
+`Building`, `Classic`.
+
+**Store links.** The game is HTML5-only and is not published on Google Play,
+the App Store or Steam, so all three fields stay empty. The same applies to
+the itch.io field if the portal shows one — leave it empty unless you publish
+the build elsewhere first.
+
+**Mobile orientation.** The note in the portal says the setting can only change
+when a new build is created, so pick it once, at upload time. The game is
+fully playable in both orientations: the hex board scales to the viewport, the
+shop becomes a bottom bar under 768 px, and touch build/pan/zoom all work. The
+recommended setting is *landscape* for the richest layout, but *any* is also
+correct.
+
+### 1c. Where the files are
+
+Everything is downloadable from the submission download server and from GitHub:
+
+```
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/hex-defender-last-core.zip
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/covers/cover-landscape.png
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/covers/cover-portrait.png
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/covers/cover-square.png
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/videos/preview-landscape.mp4
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/videos/preview-portrait.mp4
+https://8099-ijlmmh7f5v9cqsu1v4d1q.e2b.app/screenshots/shot-01-wave-20-title.png
+```
+
+GitHub fallback (same files, in the repo):
+`https://github.com/TAHA-5440/arena/tree/arena/6e4ea6d8-arena/release`
 
 ---
 
@@ -127,6 +182,49 @@ no promotional text.
 
 ---
 
+## 4b. Preview videos (mandatory)
+
+Both videos are **real gameplay**, recorded from the game itself at 1× speed
+(no fast-forward), then encoded to H.264 / yuv420p with a faststart moov atom.
+
+| Video | Resolution | Ratio | Length | Size | File |
+|---|---|---|---|---|---|
+| Landscape (mandatory) | 1920×1080 | 16:9 | 16 s | 3.2 MB | `release/videos/preview-landscape.mp4` |
+| Portrait (mandatory) | 1080×1620 | 2:3 | 16 s | 3.1 MB | `release/videos/preview-portrait.mp4` |
+
+Both sit inside the guidelines: 15–20 s, ≤ 50 MB, 1080p 16:9 **and** 1080p 2:3.
+
+**Content.** The 16-second cut is wave 20 — *THE NULL ARCHON* — the final boss:
+the "ACT IV — LAST STAND" title card, the wave-20 banner, the boss spotlight
+and health bar, the phase callout ("REINFORCEMENT PROTOCOL — the Archon is
+deploying drones"), live turret targeting lines, explosions and a combo
+multiplier climbing to x5.
+
+**Avoided by design.** No black screen and no logo transition (the clip opens
+straight into gameplay), no black bars (each video is rendered at its exact
+target resolution), no mouse cursor (the video is the game canvas only), no
+"Play now" or other promotional text, no app or social-media icons, and no
+fast-forward.
+
+A spare 9:16 render (`release/videos/alt/preview-portrait-1080x1920.mp4`) is
+committed as well, in case the portal ever asks for 16:9 phone framing instead
+of the documented 2:3. The spec asks for 2:3, so it should not be needed.
+
+### How the videos are produced
+
+```bash
+npm run record:videos
+```
+
+`scripts/record-gameplay.mjs` bundles `scripts/video/recorder.ts` with esbuild
+and runs the **real** game simulation head-less against a native Canvas 2D
+implementation (`@napi-rs/canvas`), then encodes the frames with the bundled
+ffmpeg (`@ffmpeg-installer/ffmpeg`). No browser is involved — the frames come
+from the same `Game.render()` the browser calls, so the video is genuine
+gameplay rather than a mock-up.
+
+---
+
 ## 5. QA checklist answers (Basic Launch)
 
 Tick the following on the portal's checklist. Each row says what to select and
@@ -155,47 +253,66 @@ why it is true of this build.
 
 ## 6. Still to do before publishing
 
-- **Preview video** — required: 15–20 s, ≤ 50 MB, 1080p landscape *and* 1080p
-  portrait. Capture the best moments (a boss wave, a big combo, the orbital
-  strike) with no black bars, no mouse cursor and no promotional text.
-- **Game description + controls** — the portal asks for these as free text.
-  Suggested copy is in `docs/CRAZYGAMES-SUBMISSION.md` §6.
-- **Orientation setting** in the portal — set it to *any* (or landscape +
-  portrait): the game is fully playable in both.
 - **Ad integration** — only needed for Full Launch. Nothing to do for a Basic
   Launch; ads are disabled by the platform in that case.
 - **Re-upload and send the build to QA** — the portal shows *"This build has
   not been sent to QA"* until you explicitly submit it, and every measurement
   above comes from the uploaded build, not the local one.
+- **The Details page itself is now fully answered** — category, tags,
+  description, controls, store links, marketing creatives URL, covers, preview
+  videos and orientation are all in §1b and §7.
 
 ---
 
-## 7. Suggested portal copy
+## 7. Portal copy — paste this in
 
-**Short description**
+### Short description (one line)
 
 > The last reactor in the sector still hums. Build a defence of hexagonal
 > turrets on a hex grid, hold three converging invasion routes, and survive
 > 20 hand-authored waves across four escalating acts — ending with the Null
 > Archon.
 
-**Longer description**
+### Description (plain text — the editor allows no HTML)
 
-> HEX DEFENDER: LAST CORE is a focused hex-grid tower defence campaign. One
-> battlefield, one reactor, three lanes that converge only at the core.
-> Place and upgrade six tower types, unlock new technology as the acts
-> escalate, and fight two multi-phase bosses. Every wave is hand-authored, so
-> each encounter is a designed puzzle rather than random spawns. Survive wave
-> 20, then push your luck in Endless Mode. Progress saves automatically.
+> The last reactor in the sector is still humming, and everything in the
+> sector wants it dead.
+>
+> HEX DEFENDER: LAST CORE is a hex-grid tower defence campaign. You command a
+> single reactor core at the centre of a hexagonal battlefield while three
+> invasion routes converge on it. Build a defence of turrets, upgrades and
+> specialisations, then decide when to call the next wave.
+>
+> Six tower types, each with three levels and a level-3 specialisation: Bolt
+> for cheap damage, Cryo to slow, Arc to chain through crowds, Rail to punch
+> through armour and bosses, Nova to blast whole clusters, and Amplifier to
+> supercharge everything around it. They unlock as the acts escalate, so every
+> wave introduces a new tool and a new problem.
+>
+> Twenty hand-authored waves across four acts. Every encounter is a designed
+> puzzle, not random spawns. Bruisers soak fire, Dashers sprint, Shield Guards
+> block, Splitters divide, Disruptors jam your towers, and two multi-phase
+> bosses — the Iron Colossus at wave 10 and the Null Archon at wave 20 —
+> telegraph their phases before they strike. Survive the Archon, then push
+> your luck in Endless Mode, where bosses return every five waves.
+>
+> Three difficulty levels, a local best-score leaderboard, three active
+> abilities, and 1×–3× speed control. Progress saves automatically, so you can
+> pick the campaign back up at any time.
+>
+> Plays with mouse and keyboard on desktop and with touch on mobile, in
+> landscape or portrait. Runs in the browser in seconds — no download, no
+> account.
 
-**Controls**
+### Controls (bulleted list)
 
-> **Build:** pick a tower in the shop, then click/tap a hex.
-> **Inspect:** click a placed tower to upgrade, sell, or pick its level-3
-> specialisation and targeting priority.
-> **Wave:** `SPACE` or the START WAVE button. Speed `1–3×` with `+` / `-`.
-> **Abilities:** `Z` EMP freeze · `X` Orbital Strike (click to aim) ·
-> `V` Overdrive.
-> **Camera:** drag to pan, wheel or pinch to zoom, `C` to recentre.
-> **Pause:** `P` or `Esc`.
-> **Touch:** tap to build, drag to pan, pinch to zoom.
+> - **Build:** pick a tower in the shop, or press 1–6, then click/tap a hex.
+> - **Inspect:** click a placed tower to upgrade it, sell it, or change its
+>   targeting priority.
+> - **Targeting:** Q / E cycle the target priority (First, Last, Strong, Weak,
+>   Fast).
+> - **Start wave:** SPACE or the START WAVE button. Speed 1×–3× with + / -.
+> - **Abilities:** Z EMP freeze, X Orbital Strike (click to aim), V Overdrive.
+> - **Camera:** drag to pan, wheel or pinch to zoom, C to recentre.
+> - **Pause:** P or Esc.
+> - **Touch:** tap to build, drag to pan, pinch to zoom.
