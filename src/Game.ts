@@ -20,6 +20,18 @@ interface Announce { title: string; sub?: string; color: string; t: number; dur:
 interface ScheduledAnnounce { delay: number; a: Announce; }
 interface RailShot { towerId: number; targetId: number; timer: number; }
 
+export type CoachStep = 'mission' | 'place' | 'armed' | 'combat' | 'cleared';
+export interface CoachCard {
+  step: CoachStep;
+  index: number;
+  total: number;
+  kicker: string;
+  title: string;
+  body: string;
+  hint: string;
+  spotlight: 'core' | 'hex' | 'start' | 'combat' | 'shop';
+}
+
 export class Game {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -66,7 +78,10 @@ export class Game {
   selectedTowerId: number | null = null;
   hoverHex: {q:number;r:number} | null = null;
   hoverScreen: {x:number;y:number} | null = null;
+  hoverEnemy: EnemyInstance | null = null;
+  inspectedEnemyId: number | null = null;
   placementValid = false;
+  lastWaveRecap: { wave: number; killed: number; leaked: number; perfect: boolean; energy: number } | null = null;
 
   // campaign progression
   unlockedTowers: TowerType[] = [TT.BOLT];
@@ -81,6 +96,7 @@ export class Game {
 
   // onboarding
   tutorial: { stage: 'title'|'build'|'countdown'; t: number; countdown: number } | null = null;
+  coach: { step: CoachStep; dismissed: boolean } | null = null;
 
   // bosses
   bossIntro: { name: string; t: number; portal: number } | null = null;
@@ -103,7 +119,9 @@ export class Game {
   gameSpeed = 1;
   uiRoot: HTMLElement;
   uiVersion = 0;   // bumped when the DOM UI should re-render
-  settings: Settings = { sfxVolume:0.7, musicVolume:0.35, quality:'high', reducedMotion:false, showFps:false, difficulty:D.COMMANDER };
+  settings: Settings = { sfxVolume:0.7, musicVolume:0.32, masterVolume:0.85, uiVolume:0.55, muted:false, audioQuality:'high', quality:'high', reducedMotion:false, showFps:false, difficulty:D.COMMANDER };
+  private lastOverdrive = 0;
+  private lastAmpLinks = 0;
   fps = 60; frameCount=0; fpsTimer=0;
   leaderboard: any[] = [];
   endlessSeed = 12345;
@@ -149,7 +167,8 @@ export class Game {
     this.camera.resize(w,h);
     const boardPx = HEX_STEP*13;
     const fit = Math.min(w,h)/boardPx;
-    this.camera.targetZoom = Math.max(0.55, Math.min(1.7, fit*0.92));
+    const menuish = this.state === GS.MAIN_MENU || this.state === GS.HOW_TO || this.state === GS.LEADERBOARD || this.state === GS.SETTINGS || this.state === GS.BOOT;
+    this.camera.targetZoom = Math.max(0.55, Math.min(1.7, fit*(menuish ? 0.8 : 0.92)));
     this.camera.zoom = this.camera.targetZoom;
   }
 
@@ -164,10 +183,12 @@ export class Game {
     };
     this.input.onPointerMove = (x,y) => {
       this.hoverScreen = {x,y};
-      if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) return;
+      if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) { this.hoverEnemy = null; return; }
       const w = this.camera.screenToWorld({x,y});
       const hex = pixelToAxial(w.x, w.y);
       if (this.board.inBounds(hex.q, hex.r)) this.hoverHex = hex; else this.hoverHex = null;
+      this.hoverEnemy = this.pickEnemyAt(w.x, w.y);
+      this.canvas.style.cursor = this.hoverEnemy ? 'pointer' : (this.selectedTowerType ? 'cell' : '');
       this.updatePlacementValid();
     };
     this.input.onPointerUp = (x,y,_btn,dragged) => {
@@ -179,18 +200,27 @@ export class Game {
         return;
       }
       const w = this.camera.screenToWorld({x,y});
+      const enemy = this.pickEnemyAt(w.x, w.y);
+      if (enemy) {
+        this.inspectedEnemyId = enemy.id;
+        this.selectedTowerId = null;
+        this.audio.select();
+        return;
+      }
+      this.inspectedEnemyId = null;
       const hex = pixelToAxial(w.x, w.y);
       if (!this.board.inBounds(hex.q, hex.r)) { this.selectedTowerId = null; this.uiVersion++; return; }
       const tile = this.board.tile(hex.q, hex.r)!;
       if (tile.type === TILE.OCCUPIED) {
         const t = this.towers.find(t=>t.q===hex.q && t.r===hex.r);
-        if (t) { this.selectedTowerId = t.id; this.selectedTowerType = null; this.audio.click(); this.uiVersion++; }
+        if (t) { this.selectedTowerId = t.id; this.selectedTowerType = null; this.audio.select(); this.uiVersion++; }
         return;
       }
       if (this.selectedTowerType && tile.type === TILE.NORMAL) {
         this.tryPlaceTower(this.selectedTowerType, hex.q, hex.r);
       } else {
         this.selectedTowerId = null;
+        this.uiVersion++;
       }
     };
     this.input.onPan = (dx,dy) => {
@@ -200,12 +230,25 @@ export class Game {
       this.clampCamera();
     };
     this.input.onPinch = (scale) => {
+      if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) return;
       this.camera.setZoom(this.camera.zoom * scale);
     };
     this.input.onWheel = (delta) => {
+      if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) return;
       this.camera.setZoom(this.camera.targetZoom + (delta>0 ? -0.12 : 0.12));
     };
     this.input.onKeyDown = (key) => this.handleKey(key);
+  }
+
+  pickEnemyAt(x: number, y: number): EnemyInstance | null {
+    let best: EnemyInstance | null = null;
+    let bestD = 1e9;
+    for (const e of this.enemies) {
+      if (!e.alive || e.dying) continue;
+      const d = Math.hypot(e.x - x, e.y - y);
+      if (d < e.radius + 12 && d < bestD) { best = e; bestD = d; }
+    }
+    return best;
   }
 
   clampCamera() {
@@ -224,7 +267,7 @@ export class Game {
     const hotkeys: Record<string, TowerType> = { '1': TT.BOLT, '2': TT.CRYO, '3': TT.ARC, '4': TT.RAIL, '5': TT.NOVA, '6': TT.AMP };
     if (hotkeys[key]) {
       const t = hotkeys[key];
-      if (this.isTowerUnlocked(t)) { this.selectedTowerType = this.selectedTowerType === t ? null : t; this.selectedTowerId = null; this.uiVersion++; }
+      if (this.isTowerUnlocked(t)) { this.selectedTowerType = this.selectedTowerType === t ? null : t; this.selectedTowerId = null; this.audio.select(); this.uiVersion++; }
       return;
     }
     if (key === '-' || key === '_') { this.gameSpeed = Math.max(1, this.gameSpeed-1); this.uiVersion++; }
@@ -277,8 +320,8 @@ export class Game {
     };
     this.towers.push(t);
     this.stats.towersBuilt++;
-    this.audio.place();
     const p = axialToPixel(q,r);
+    this.audio.place(p, type);
     this.particles.burst(p.x,p.y, def.color, 16, 120, 2.5, 0.5);
     this.particles.spawn({x:p.x,y:p.y,vx:0,vy:0,color:def.color,size:6,life:0.6,shape:'ring',alpha:0.9});
     this.spawnFloatingText(p.x,p.y, `-${def.cost}`, '#54F7C5');
@@ -287,6 +330,7 @@ export class Game {
       this.tutorial = { stage: 'countdown', t: 0, countdown: BALANCE.tutorialCountdown };
       this.selectedTowerType = null;
       this.selectedTowerId = t.id;
+      if (this.coach && !this.coach.dismissed) this.coach.step = 'armed';
       this.announce('DEFENSES ONLINE', 'Wave 1 inbound — get ready', '#54F7C5', 2.2, false);
     }
     this.uiVersion++;
@@ -329,8 +373,9 @@ export class Game {
     this.resetRun();
     this.state = GS.BUILD_PHASE;
     this.audio.startMusic();
-    // Onboarding: first-10-seconds script
+    // Onboarding: first-10-seconds script + persistent coach card
     this.tutorial = { stage: 'title', t: 0, countdown: 0 };
+    this.coach = { step: 'mission', dismissed: false };
     this.selectedTowerType = TT.BOLT;
     this.scheduleAnnounce(0.4, 'DEFEND THE LAST CORE', 'Protect the reactor at all costs', '#00E5FF', 2.4, true);
     this.scheduleAnnounce(3.2, 'BUILD YOUR FIRST TOWER', 'Bolt Sentinel selected — place it on the highlighted hex', '#00E5FF', 3.4, false);
@@ -373,6 +418,9 @@ export class Game {
     this.selectedTowerType = null;
     this.selectedTowerId = null;
     this.hoverHex = null;
+    this.hoverEnemy = null;
+    this.inspectedEnemyId = null;
+    this.lastWaveRecap = null;
     this.unlockedTowers = [TT.BOLT];
     this.unlockToasts = [];
     this.routesUnlocked = 1;
@@ -381,6 +429,7 @@ export class Game {
     this.lastActAnnounced = 0;
     this.actShown = 1; this.actTarget = 1; this.actBlendT = 1;
     this.tutorial = null;
+    this.coach = null;
     this.bossIntro = null;
     this.flashTimer = 0; this.reactorFlash = 0;
     this.stats = { towersBuilt: 0, energyEarned: 0, bestCombo: 1, startTime: 0 };
@@ -388,6 +437,12 @@ export class Game {
     this.endlessSeed = (Date.now() ^ 0x5EED) & 0x7fffffff;
     this.upcomingCache = null;
     this.camera.x = 0; this.camera.y = 0;
+    const boardPx = HEX_STEP * 13;
+    const fit = Math.min(this.camera.width || 1, this.camera.height || 1) / boardPx;
+    this.camera.targetZoom = Math.max(0.55, Math.min(1.7, fit * 0.92));
+    this.camera.zoom = this.camera.targetZoom;
+    this.lastOverdrive = 0;
+    this.lastAmpLinks = 0;
     this.uiVersion++;
   }
 
@@ -438,6 +493,10 @@ export class Game {
     this.waveCompleteBonusGiven = false;
     this.spawnQueue = [];
     this.tutorial = null;
+    if (this.coach && !this.coach.dismissed) {
+      if (def.number === 1) this.coach.step = 'combat';
+      else this.coach.dismissed = true;
+    }
     this.orbitalAiming = false;
     if (def.number >= 20) this.preFinal = false;
 
@@ -472,7 +531,7 @@ export class Game {
       const p = axialToPixel(portal.q, portal.r);
       this.particles.burst(p.x, p.y, '#FF536A', 30, 200, 3, 0.9);
       this.particles.spawn({x:p.x,y:p.y,vx:0,vy:0,color:'#FF536A',size:10,life:0.9,shape:'ring',alpha:1});
-      this.audio.portalActivate();
+      this.audio.portalActivate(p, def.activateRoute);
       this.announce('NEW ENEMY APPROACH DETECTED', 'New portal online', '#FF536A', 2.8, true);
     }
     this.routesUnlocked = Math.max(this.routesUnlocked, routesForWave(Math.min(def.number, 20)));
@@ -492,7 +551,7 @@ export class Game {
       this.bossIntro = { name: def.boss.name, t: 3.6, portal: def.boss.portal };
       this.scheduleAnnounce(0.4, 'WARNING — MASSIVE HOSTILE SIGNATURE', undefined, '#FF536A', 2.6, true);
       this.scheduleAnnounce(2.4, def.boss.name, def.boss.type === ET.BOSS ? 'FINAL CORE ASSAULT' : 'BOSS ENCOUNTER', '#FF536A', 2.6, true);
-      this.audio.bossWarn();
+      this.audio.bossWarn(def.boss.type);
     }
 
     // Authored first-time callouts
@@ -500,7 +559,13 @@ export class Game {
       def.callouts.forEach((c, i) => this.scheduleAnnounce(1.4 + i*0.5, c.title, c.sub, '#FFB547', 2.8, false));
     }
 
-    this.audio.waveStart();
+    this.audio.waveStart(def.number);
+    if (def.number === 3) this.audio.waveSpecial(3, 'bruiser');
+    if (def.number === 4) this.audio.waveSpecial(4, 'dasher');
+    if (def.number === 7) this.audio.waveSpecial(7, 'shield');
+    if (def.number === 9) this.audio.waveSpecial(9, 'splitter');
+    if (def.number === 11) this.audio.waveSpecial(11, 'amp');
+    if (def.number === 12) this.audio.waveSpecial(12, 'disruptor');
     this.uiVersion++;
   }
 
@@ -538,6 +603,7 @@ export class Game {
       isBoss, bossName,
     };
     this.enemies.push(e);
+    this.audio.enemySpawn(type, { x: e.x, y: e.y });
   }
 
   /** Scripted escort/support spawns (boss phases). Counted toward wave totals. */
@@ -551,6 +617,9 @@ export class Game {
   // -------------------------------------------------------------------------
 
   update(dtRaw:number) {
+    this.syncAudio();
+    if (this.lastOverdrive > 0 && this.overdriveActive <= 0) this.audio.overdriveEnd();
+    this.lastOverdrive = this.overdriveActive;
     if (this.paused) return;
     const dt = dtRaw * this.gameSpeed;
     this.time += dt;
@@ -559,9 +628,12 @@ export class Game {
     if (this.fpsTimer >= 1) { this.fps = this.frameCount; this.frameCount=0; this.fpsTimer=0; }
     this.updateAnnouncements(dt);
 
-    if (this.state === GS.BOOT) { this.state = GS.MAIN_MENU; return; }
+    if (this.state === GS.BOOT) { this.state = GS.MAIN_MENU; this.audio.startMusic(); return; }
 
     if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) {
+      if (!this.paused && (this.state === GS.MAIN_MENU || this.state === GS.HOW_TO || this.state === GS.LEADERBOARD || this.state === GS.SETTINGS)) {
+        this.updateMenuCamera(dt);
+      }
       this.particles.update(dt);
       this.updateFloatingTexts(dt);
       this.camera.update(dt);
@@ -603,7 +675,13 @@ export class Game {
     if (this.tutorial) {
       if (this.tutorial.stage === 'title') {
         this.tutorial.t += dt;
-        if (this.tutorial.t > 3.0) this.tutorial.stage = 'build';
+        if (this.tutorial.t > 3.0) {
+          this.tutorial.stage = 'build';
+          if (this.coach && !this.coach.dismissed && this.coach.step === 'mission') {
+            this.coach.step = 'place';
+            this.uiVersion++;
+          }
+        }
       } else if (this.tutorial.stage === 'countdown') {
         this.tutorial.countdown -= dt;
         if (this.tutorial.countdown <= 0) { this.tutorial = null; this.startWaveIfReady(); }
@@ -641,16 +719,18 @@ export class Game {
         tower.charge = 0;
         const tgt = this.enemies.find(e=>e.id===r.targetId);
         if (!tgt || !tgt.alive || tgt.dying) continue;
-        this.audio.railFire();
-        const dmg = this.towerDamage(tower) * (tower.specPrecision && tgt.isBoss ? 1.6 : 1) * (tower.specArmorPierce ? 1.4 : 1);
         const p2 = axialToPixel(tower.q, tower.r);
+        this.audio.railFire(p2);
+        const dmg = this.towerDamage(tower) * (tower.specPrecision && tgt.isBoss ? 1.6 : 1) * (tower.specArmorPierce ? 1.4 : 1);
         this.projectiles.push({
           id: nid(), kind:'rail', x:p2.x, y:p2.y, vx:0, vy:0, targetId: tgt.id, sourceTowerId: tower.id,
           damage: dmg, speed:0, life:0.25, maxLife:0.25, color:'#FF4F9D', radius:2,
           beam: { x1:p2.x, y1:p2.y, x2:tgt.x, y2:tgt.y, life:0.25, maxLife:0.25 },
           hitIds:new Set([tgt.id]), trail:[]
         });
-        this.applyDamage(tgt, dmg, tower);
+        const shielded = tgt.shield > 0;
+        this.applyDamage(tgt, dmg, tower, true);
+        if (!shielded) this.audio.railImpact({ x: tgt.x, y: tgt.y });
         this.particles.burst(p2.x,p2.y,'#FF4F9D',12,160,2,0.3);
       }
     }
@@ -693,12 +773,12 @@ export class Game {
         e.disruptPulse -= dt;
         if (e.disruptPulse <= BALANCE.disruptTelegraph && e.disruptTimer === 0) {
           e.disruptTimer = 1;
-          this.audio.disruptWarn();
+          this.audio.disruptWarn({ x: e.x, y: e.y });
         }
         if (e.disruptPulse <= 0) {
           e.disruptPulse = BALANCE.disruptPeriod;
           e.disruptTimer = 0;
-          this.audio.disruptPulse();
+          this.audio.disruptPulse({ x: e.x, y: e.y });
           this.particles.spawn({x:e.x,y:e.y,vx:0,vy:0,color:'#FF4F9D',size:8,life:0.5,shape:'ring',alpha:0.9});
           for (const t of this.towers) {
             const tp = axialToPixel(t.q,t.r);
@@ -713,7 +793,7 @@ export class Game {
 
       if (e.routeIndex >= e.route.length - 1) {
         this.reactorIntegrity = Math.max(0, this.reactorIntegrity - e.leakDamage);
-        this.audio.reactorHit();
+        this.audio.reactorHit({ x: 0, y: 0 });
         this.camera.shake(7);
         this.reactorFlash = 0.6;
         const cp = axialToPixel(0,0);
@@ -725,6 +805,7 @@ export class Game {
         this.spawnFloatingText(cp.x, cp.y-24, `-${e.leakDamage} CORE`, '#FF536A', 15);
         if (this.reactorIntegrity <= 6 && this.reactorIntegrity > 0 && !this.lowIntegrityWarned) {
           this.lowIntegrityWarned = true;
+          this.audio.critical();
           this.announce('CORE INTEGRITY CRITICAL', 'Defend the reactor!', '#FF536A', 2.6, true);
         }
         continue;
@@ -767,7 +848,7 @@ export class Game {
         e.bossPhase = 2;
         e.shieldChargeTimer = 1.5;
         this.announce('ENERGY SHIELD CHARGING', 'Break through it with concentrated fire', '#FFB547', 2.6, false);
-        this.audio.disruptWarn();
+        this.audio.bossPhase(2, 'TITAN');
       }
       if (e.bossPhase === 2 && e.shieldChargeTimer > 0) {
         e.shieldChargeTimer -= dt;
@@ -782,7 +863,7 @@ export class Game {
         e.bossPhase = 3;
         e.speed = e.baseSpeed * BALANCE.colossusPhase3Speed;
         this.announce('FINAL PUSH', 'The Colossus accelerates', '#FF536A', 2.4, true);
-        this.audio.critical();
+        this.audio.bossPhase(3, 'TITAN');
         if (!e.escortSpawned) {
           e.escortSpawned = true;
           this.spawnEscort(ET.SWARMER, 1, 2);
@@ -797,7 +878,7 @@ export class Game {
         e.bossPhase = 2;
         e.bossStopTimer = BALANCE.archonStopDuration;
         this.announce('REINFORCEMENT PROTOCOL', 'The Archon is deploying drones', '#B36BFF', 2.6, true);
-        this.audio.critical();
+        this.audio.bossPhase(2, 'BOSS');
       }
       // Deployment stop (runs regardless of current phase)
       if (e.bossStopTimer > 0) {
@@ -825,7 +906,7 @@ export class Game {
         e.bossPhase = 3;
         e.speed = e.bossStopTimer > 0 ? 0 : e.baseSpeed * BALANCE.archonPhase3Speed;
         this.announce('CRITICAL THREAT', 'Core annihilation mode — final approach', '#FF2244', 2.8, true);
-        this.audio.critical();
+        this.audio.bossPhase(3, 'BOSS');
       }
     }
   }
@@ -858,7 +939,7 @@ export class Game {
     this.kills++; this.totalKills++;
     if (e.lastHitTowerId) { const tw = this.towers.find(t=>t.id===e.lastHitTowerId); if (tw) tw.kills++; }
     this.waveKilled++;
-    this.audio.enemyDeath();
+    if (!e.isBoss) this.audio.enemyDeath(e.type, { x: e.x, y: e.y }, e.type === ET.SWARMER && e.splitDone);
     this.particles.burst(e.x,e.y, ENEMY_DEFS[e.type].color, e.isBoss?50:14, 180, 2.5, 0.6);
     this.particles.burst(e.x,e.y, '#54F7C5', 6, 100, 1.5, 0.4);
     this.spawnFloatingText(e.x, e.y-10, `+${e.reward}E  +${pts}`, '#54F7C5');
@@ -866,7 +947,7 @@ export class Game {
     if (e.isBoss) {
       this.flashTimer = 0.55;
       this.camera.shake(18);
-      this.audio.bossDeath();
+      this.audio.bossDeath(e.type, { x: e.x, y: e.y });
       this.announce(`${e.bossName || 'BOSS'} DESTROYED`, 'Bonus energy recovered', '#00E5FF', 3.0, true);
       this.energy += 100;
       this.stats.energyEarned += 100;
@@ -901,6 +982,7 @@ export class Game {
       this.enemies.push(child);
     }
     this.waveTotalEnemies += 2;
+    this.audio.enemySplit({ x: parent.x, y: parent.y });
     this.particles.spawn({x:parent.x,y:parent.y,vx:0,vy:0,color:'#B36BFF',size:8,life:0.4,shape:'ring',alpha:0.9});
   }
 
@@ -927,6 +1009,8 @@ export class Game {
         }
       }
     }
+    if (this.ampLinks.length > this.lastAmpLinks) this.audio.amplifierActivate();
+    this.lastAmpLinks = this.ampLinks.length;
     for (const t of this.towers) {
       if (t.disrupted && t.disrupted > 0) t.disrupted -= dt;
       t.cooldown -= dt;
@@ -985,7 +1069,7 @@ export class Game {
     const damage = this.towerDamage(t);
     switch (t.type) {
       case TT.BOLT: {
-        this.audio.bolt();
+        this.audio.bolt(tp);
         this.spawnProjectile({
           kind:'bolt', x:tp.x, y:tp.y, vx:0, vy:0, targetId: target.id, sourceTowerId: t.id,
           damage, speed: 520, life:2, maxLife:2, color:'#00E5FF', radius:3,
@@ -994,7 +1078,7 @@ export class Game {
         break;
       }
       case TT.ARC: {
-        this.audio.arc();
+        this.audio.arc(tp);
         this.spawnProjectile({
           kind:'arc', x:tp.x, y:tp.y, vx:0, vy:0, targetId: target.id, sourceTowerId: t.id,
           damage, speed: 420, life:2, maxLife:2, color:'#9B6CFF', radius:4,
@@ -1003,7 +1087,7 @@ export class Game {
         break;
       }
       case TT.CRYO: {
-        this.audio.cryo();
+        this.audio.cryo(tp);
         this.spawnProjectile({
           kind:'cryo', x:tp.x, y:tp.y, vx:0, vy:0, targetId: target.id, sourceTowerId: t.id,
           damage, speed: 360, life:2, maxLife:2, color:'#7FDFFF', radius:4,
@@ -1013,13 +1097,13 @@ export class Game {
         break;
       }
       case TT.RAIL: {
-        this.audio.railCharge();
+        this.audio.railCharge(tp);
         t.charge = 1;
         this.pendingRails.push({ towerId: t.id, targetId: target.id, timer: 0.35 });
         break;
       }
       case TT.NOVA: {
-        this.audio.plasma();
+        this.audio.novaFire(tp);
         this.spawnProjectile({
           kind:'plasma', x:tp.x, y:tp.y, vx:0, vy:0, targetId: target.id, sourceTowerId: t.id,
           damage, speed: 300, life:2.5, maxLife:2.5, color:'#FFB547', radius:5,
@@ -1030,6 +1114,9 @@ export class Game {
       }
     }
     this.particles.burst(tp.x, tp.y, def.color, 6, 90, 1.8, 0.25);
+    if (!this.settings.reducedMotion) {
+      this.particles.spawn({ x: tp.x, y: tp.y, vx: 0, vy: 0, color: def.color, size: 5, life: 0.2, shape: 'ring', alpha: 0.85 });
+    }
   }
 
   towerDamage(t: TowerInstance): number {
@@ -1112,14 +1199,15 @@ export class Game {
 
   onProjectileHit(p: Projectile, e: EnemyInstance) {
     const srcTower = this.towers.find(t=>t.id===p.sourceTowerId) || null;
+    const pos = { x: e.x, y: e.y };
     if (p.kind === 'bolt') {
-      this.applyDamage(e, p.damage, srcTower);
+      const shielded = e.shield > 0;
+      this.applyDamage(e, p.damage, srcTower, true);
+      if (!shielded) this.audio.boltImpact(pos);
       this.particles.burst(e.x,e.y,'#00E5FF',6,80,1.5,0.3);
-      this.audio.enemyHit();
     } else if (p.kind === 'arc') {
-      this.applyDamage(e, p.damage, srcTower);
+      this.applyDamage(e, p.damage, srcTower, true);
       this.particles.burst(e.x,e.y,'#9B6CFF',8,100,2,0.3);
-      this.audio.enemyHit();
       let prev = e;
       let dmg = p.damage;
       const hitSet = new Set([e.id]);
@@ -1134,30 +1222,33 @@ export class Game {
         if (!next) break;
         hitSet.add(next.id);
         dmg *= (p.chainFalloff||0.65);
-        this.applyDamage(next, dmg, srcTower);
+        this.applyDamage(next, dmg, srcTower, true);
+        this.audio.arcChain(c, { x: next.x, y: next.y });
         this.arcEffects.push({ x1: prev.x, y1: prev.y, x2: next.x, y2: next.y, life: 0.2, maxLife: 0.2 });
         this.particles.burst(next.x,next.y,'#9B6CFF',6,90,1.8,0.25);
         prev = next;
       }
     } else if (p.kind === 'cryo') {
-      this.applyDamage(e, p.damage, srcTower);
+      const firstSlow = e.slowTimer <= 0;
+      const shielded = e.shield > 0;
+      this.applyDamage(e, p.damage, srcTower, true);
       const factor = 1 - (p.slow||0.35);
       e.slowFactor = Math.min(e.slowFactor, factor);
       e.slowTimer = Math.max(e.slowTimer, p.slowDur||1.8);
       this.particles.burst(e.x,e.y,'#7FDFFF',6,70,1.6,0.3);
-      this.audio.enemyHit();
+      if (!shielded) this.audio.cryoImpact(pos, firstSlow);
     } else if (p.kind === 'plasma') {
-      this.applyDamage(e, p.damage, srcTower);
+      this.applyDamage(e, p.damage, srcTower, true);
       this.particles.burst(e.x,e.y,'#FFB547',10,120,2,0.3);
     }
   }
 
   explodePlasma(p: Projectile) {
     const radius = p.splash || (0.8*HEX_STEP);
-    this.audio.plasma();
     let ix = p.x, iy = p.y;
     const tgt = p.targetId ? this.enemies.find(e=>e.id===p.targetId) : null;
     if (tgt) { ix = tgt.x; iy = tgt.y; }
+    this.audio.novaExplode({ x: ix, y: iy });
     this.particles.burst(ix,iy,'#FFB547',28,220,3,0.7);
     this.particles.burst(ix,iy,'#FF4F9D',12,160,2.5,0.5);
     this.particles.spawn({x:ix,y:iy,vx:0,vy:0,color:'#FFB547',size:radius*0.3,life:0.4,shape:'ring',alpha:0.9});
@@ -1165,26 +1256,35 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.alive||e.dying) continue;
       if (Math.hypot(e.x-ix, e.y-iy) <= radius) {
-        this.applyDamage(e, p.damage, srcTower);
+        this.applyDamage(e, p.damage, srcTower, true);
       }
     }
   }
 
-  applyDamage(e: EnemyInstance, amount: number, tower: TowerInstance | null) {
+  applyDamage(e: EnemyInstance, amount: number, tower: TowerInstance | null, silentWeapon = false) {
     if (!e.alive || e.dying) return;
     let dmg = amount;
     if (e.armor > 0) dmg = Math.max(1, dmg - e.armor);
+    const pos = { x: e.x, y: e.y };
+    const hadShield = e.shield > 0;
     if (e.shield > 0) {
       if (dmg <= e.shield) { e.shield -= dmg; dmg = 0; }
       else { dmg -= e.shield; e.shield = 0; }
     }
+    if (hadShield) {
+      if (e.shield <= 0) this.audio.shieldBreak(pos);
+      else this.audio.shieldHit(pos);
+    }
     e.hp -= dmg;
     e.hitFlash = 0.09;
+    if (dmg >= 8 && this.floatingTexts.length < 14) {
+      this.spawnFloatingText(e.x + (Math.random() - 0.5) * 10, e.y - e.radius - 4, `${Math.round(dmg)}`, hadShield ? '#4FA8FF' : '#EEF6FF', 11);
+    }
     if (tower) { tower.damageDealt += amount; e.lastHitTowerId = tower.id; }
     if (e.hp <= 0) {
       this.killEnemy(e);
-    } else {
-      this.audio.enemyHit();
+    } else if (!silentWeapon && !hadShield) {
+      this.audio.enemyHit(pos, e.type);
     }
   }
 
@@ -1211,7 +1311,12 @@ export class Game {
     this.score += scoreBonus;
     this.stats.energyEarned += energyBonus;
     this.announce('WAVE CLEARED', `+${energyBonus} energy   +${scoreBonus} score`, '#00E5FF', 2.6, false);
-    if (n === 1) this.scheduleAnnounce(2.4, 'BUILD MORE DEFENSES', 'Spend your energy — the next wave is coming', '#00E5FF', 2.6, false);
+    this.lastWaveRecap = { wave: n, killed: this.waveKilled, leaked: this.waveLeaked, perfect, energy: energyBonus };
+    this.audio.waveComplete();
+    if (n === 1) {
+      this.scheduleAnnounce(2.4, 'BUILD MORE DEFENSES', 'Spend your energy — the next wave is coming', '#00E5FF', 2.6, false);
+      if (this.coach && !this.coach.dismissed) this.coach.step = 'cleared';
+    }
 
     // Tower unlocks become available during the next build phase
     for (const type of TOWER_ORDER) {
@@ -1237,7 +1342,8 @@ export class Game {
           3: 'SYSTEMS STABILIZED',
         };
         this.scheduleAnnounce(2.2, `ACT ${['I','II','III','IV'][act-1]} COMPLETE`, subs[act] + ` — +${bonus} energy`, ACTS[act-1].primary, 3.2, true);
-        this.audio.celebrate();
+        this.audio.actComplete(act);
+        if (n === 15) this.audio.waveSpecial(15, 'act3');
       }
       if (n === 19) {
         this.preFinal = true;
@@ -1259,7 +1365,6 @@ export class Game {
     this.waveActive = false;
     this.preFinal = false;
     this.audio.victory();
-    this.audio.celebrate();
     this.camera.shake(12);
     const cp = axialToPixel(0,0);
     this.particles.burst(cp.x,cp.y,'#00E5FF',80,280,4,1.4);
@@ -1307,7 +1412,7 @@ export class Game {
     this.empActive = BALANCE.empDur;
     this.empX = axialToPixel(0,0).x;
     this.empY = axialToPixel(0,0).y;
-    this.audio.ability();
+    this.audio.emp({ x: this.empX, y: this.empY });
     this.particles.burst(this.empX,this.empY,'#00E5FF',30,200,3,0.7);
     this.particles.spawn({x:this.empX,y:this.empY,vx:0,vy:0,color:'#00E5FF',size:12,life:0.7,shape:'ring',alpha:1});
     return true;
@@ -1316,6 +1421,7 @@ export class Game {
   beginOrbitalAim() {
     if (this.cooldowns.orbital > 0 || this.energy < BALANCE.abilityCosts.orbital) { this.audio.noEnergy(); return false; }
     this.orbitalAiming = !this.orbitalAiming;
+    if (this.orbitalAiming) this.audio.orbitalLock();
     this.uiVersion++;
     return true;
   }
@@ -1329,7 +1435,7 @@ export class Game {
     this.orbitalTimer = 0.8;
     this.orbitalAiming = false;
     this.particles.spawn({x,y,vx:0,vy:0,color:'#FF4F9D',size:HEX_STEP*0.8,life:0.8,shape:'ring',alpha:0.9});
-    this.audio.ability();
+    this.audio.orbitalCharge({ x, y });
     this.uiVersion++;
     return true;
   }
@@ -1338,14 +1444,14 @@ export class Game {
   activateOrbital(x:number,y:number) { return this.fireOrbital(x,y); }
 
   doOrbital(x:number,y:number) {
-    this.audio.plasma();
+    this.audio.orbitalImpact({ x, y });
     this.particles.burst(x,y,'#FF4F9D',40,260,4,0.9);
     this.particles.spawn({x,y,vx:0,vy:0,color:'#EEF6FF',size:10,life:0.5,shape:'ring',alpha:1});
     const r = BALANCE.orbitalRadius*HEX_STEP;
     for (const e of this.enemies) {
       if (!e.alive||e.dying) continue;
       if (Math.hypot(e.x-x, e.y-y) <= r) {
-        this.applyDamage(e, BALANCE.orbitalDamage, null);
+        this.applyDamage(e, BALANCE.orbitalDamage, null, true);
       }
     }
   }
@@ -1356,7 +1462,7 @@ export class Game {
     this.energy -= BALANCE.abilityCosts.overdrive;
     this.cooldowns.overdrive = BALANCE.abilityCooldowns.overdrive;
     this.overdriveActive = BALANCE.overdriveDur;
-    this.audio.ability();
+    this.audio.overdrive();
     const cp = axialToPixel(0,0);
     this.particles.burst(cp.x,cp.y,'#00E5FF',24,180,3,0.6);
     return true;
@@ -1382,8 +1488,8 @@ export class Game {
       t.spec = specChoice || 1;
       this.applySpec(t, specChoice);
     }
-    this.audio.upgrade();
     const p = axialToPixel(t.q,t.r);
+    this.audio.upgrade(p, t.type);
     this.particles.burst(p.x,p.y, TOWER_DEFS[t.type].color, 20, 150, 2.5, 0.6);
     this.spawnFloatingText(p.x, p.y-10, t.level===3 ? 'MAX LEVEL' : 'UPGRADE', '#EEF6FF');
     this.uiVersion++;
@@ -1410,8 +1516,8 @@ export class Game {
     this.board.tile(t.q,t.r)!.type = TILE.NORMAL;
     this.towers = this.towers.filter(x=>x.id!==t.id);
     this.selectedTowerId = null;
-    this.audio.sell();
     const p = axialToPixel(t.q,t.r);
+    this.audio.sell(p);
     this.particles.burst(p.x,p.y,'#54F7C5',14,120,2,0.4);
     this.spawnFloatingText(p.x,p.y, `+${refund}`, '#54F7C5');
     this.uiVersion++;
@@ -1496,7 +1602,10 @@ export class Game {
       this.actShown = this.actTarget = this.lastActAnnounced;
       this.waveActive = false;
       this.tutorial = null;
+      this.coach = null;
       this.state = GS.BUILD_PHASE;
+      this.paused = false;
+      this.audio.startMusic();
       return true;
     } catch(e) { return false; }
   }
@@ -1525,16 +1634,14 @@ export class Game {
       const raw = localStorage.getItem('hexdefender_settings');
       if (raw) this.settings = { ...this.settings, ...JSON.parse(raw) };
     } catch(e){}
-    this.audio.setSfx(this.settings.sfxVolume);
-    this.audio.setMusic(this.settings.musicVolume);
+    this.audio.applySettings(this.settings);
     if (this.settings.quality === 'low') this.particles.setBudget(BALANCE.particleBudgetMobile);
     else if (this.settings.quality === 'medium') this.particles.setBudget(900);
     else this.particles.setBudget(BALANCE.particleBudgetDesktop);
   }
   saveSettings() {
     try { localStorage.setItem('hexdefender_settings', JSON.stringify(this.settings)); } catch(e){}
-    this.audio.setSfx(this.settings.sfxVolume);
-    this.audio.setMusic(this.settings.musicVolume);
+    this.audio.applySettings(this.settings);
   }
   loadBestScore() {
     try {
@@ -1615,8 +1722,43 @@ export class Game {
     }
   }
 
-  pause() { if (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE) { this.paused=true; this.state=GS.PAUSED; this.uiVersion++; } }
-  resume() { if (this.state===GS.PAUSED) { this.paused=false; this.state = this.waveActive ? GS.COMBAT_PHASE : GS.BUILD_PHASE; this.uiVersion++; } }
+  pause() { if (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE) { this.paused=true; this.state=GS.PAUSED; this.audio.onPause(); this.uiVersion++; } }
+  resume() { if (this.state===GS.PAUSED) { this.paused=false; this.state = this.waveActive ? GS.COMBAT_PHASE : GS.BUILD_PHASE; this.audio.onResume(); this.uiVersion++; } }
+
+  syncAudio() {
+    const alive = this.enemies.filter(e => e.alive && !e.dying);
+    const boss = alive.find(e => e.isBoss);
+    let near = 0;
+    for (const e of alive) {
+      if (e.route.length > 1 && e.routeIndex >= e.route.length - 3) near++;
+    }
+    const waveN = Math.min(Math.max(this.wave, 1), 20);
+    this.audio.sync({
+      state: this.state,
+      paused: this.paused || this.state === GS.PAUSED,
+      wave: this.wave,
+      act: actForWave(waveN),
+      waveActive: this.waveActive,
+      integrity: this.reactorIntegrity,
+      maxIntegrity: this.maxIntegrity,
+      enemyCount: alive.length,
+      nearCoreCount: near,
+      hasBoss: !!boss,
+      bossKind: boss ? (boss.type === ET.TITAN ? 'TITAN' : 'BOSS') : null,
+      bossPhase: boss?.bossPhase || 0,
+      bossHpRatio: boss && boss.maxHp > 0 ? boss.hp / boss.maxHp : 1,
+      routes: this.routesUnlocked,
+      gameSpeed: this.gameSpeed,
+      overdrive: this.overdriveActive > 0,
+      disruptorCharging: alive.some(e => e.type === ET.DISRUPTOR && e.disruptPulse <= BALANCE.disruptTelegraph),
+      cameraX: this.camera.x,
+      cameraY: this.camera.y,
+      cameraZoom: this.camera.zoom,
+      muted: this.settings.muted,
+      audioQuality: this.settings.audioQuality,
+      reducedMotion: this.settings.reducedMotion,
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Rendering — world
@@ -1638,8 +1780,49 @@ export class Game {
     this.drawFloatingTexts(ctx);
     ctx.restore();
     this.drawOverlays(ctx, w, h);
-    this.drawHUD(ctx, w, h);
+    const menuish = this.state === GS.MAIN_MENU || this.state === GS.HOW_TO || this.state === GS.LEADERBOARD || this.state === GS.SETTINGS || this.state === GS.BOOT;
+    if (menuish) this.drawMenuVignette(ctx, w, h);
+    else this.drawHUD(ctx, w, h);
     this.updateArcEffects(1/60 * this.gameSpeed);
+  }
+
+  updateMenuCamera(dt: number) {
+    const boardPx = HEX_STEP * 13;
+    const fit = Math.min(this.camera.width || 1, this.camera.height || 1) / boardPx;
+    this.camera.targetZoom = Math.max(0.55, Math.min(1.7, fit * 0.8));
+    if (!this.settings.reducedMotion) {
+      this.camera.x = Math.sin(this.time * 0.13) * 26;
+      this.camera.y = Math.cos(this.time * 0.09) * 16;
+    } else {
+      this.camera.x = 0;
+      this.camera.y = 0;
+    }
+    this.ambientTimer -= dt;
+    if (this.ambientTimer <= 0 && !this.settings.reducedMotion) {
+      this.ambientTimer = 0.22;
+      const a = Math.random() * Math.PI * 2;
+      const r = 18 + Math.random() * HEX_STEP * 4.2;
+      this.particles.spawn({
+        x: Math.cos(a) * r, y: Math.sin(a) * r,
+        vx: (Math.random() - 0.5) * 8, vy: -12 - Math.random() * 10,
+        color: '#00E5FF', size: 1.5, life: 2.6, alpha: 0.6, drag: 1,
+      });
+    }
+    this.pulseTimer -= dt;
+    if (this.pulseTimer <= 0 && !this.settings.reducedMotion) {
+      this.pulseTimer = 2.35;
+      const cp = axialToPixel(0, 0);
+      this.particles.spawn({ x: cp.x, y: cp.y, vx: 0, vy: 0, color: '#00E5FF', size: 9, life: 2.1, shape: 'ring', alpha: 0.55 });
+    }
+  }
+
+  drawMenuVignette(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    const g = ctx.createRadialGradient(w * 0.62, h * 0.48, Math.min(w, h) * 0.08, w * 0.5, h * 0.5, Math.max(w, h) * 0.74);
+    g.addColorStop(0, 'rgba(7,11,23,0)');
+    g.addColorStop(0.42, 'rgba(7,11,23,0.18)');
+    g.addColorStop(1, 'rgba(7,11,23,0.72)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
   }
 
   /** Blended act palette (transitions over ~4s when the act changes). */
@@ -1699,23 +1882,35 @@ export class Game {
       ctx.fillRect(x-60, -boardPx/2, 120, boardPx);
     }
     // tiles
+    const play = this.state===GS.BUILD_PHASE || this.state===GS.COMBAT_PHASE;
     for (const tile of this.board.allTiles()) {
       const p = axialToPixel(tile.q, tile.r);
       const pts = hexCornersArr(p.x, p.y, HEX_RADIUS-1);
       let fill = '#0C1326';
-      if (tile.type === TILE.ROUTE) fill = '#141c33';
+      if (tile.type === TILE.ROUTE) fill = this.state === GS.COMBAT_PHASE ? '#171f38' : '#141c33';
       if (tile.type === TILE.CORE) fill = hexA(pal.primary, 0.08);
       if (tile.type === TILE.PORTAL) fill = 'rgba(255,83,106,0.12)';
       if (tile.type === TILE.RESTRICTED) fill = '#0a1020';
+      if (tile.type === TILE.OCCUPIED) {
+        const tw = this.towers.find(t => t.q === tile.q && t.r === tile.r);
+        fill = tw ? hexA(TOWER_DEFS[tw.type].color, 0.14) : '#0C1326';
+      }
       ctx.fillStyle = fill;
       ctx.beginPath();
       ctx.moveTo(pts[0].x,pts[0].y);
       for (let i=1;i<6;i++) ctx.lineTo(pts[i].x,pts[i].y);
       ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+      ctx.lineWidth = 1;
+      const inner = hexCornersArr(p.x, p.y - 1.2, HEX_RADIUS - 3.5);
+      ctx.beginPath(); ctx.moveTo(inner[0].x, inner[0].y); for (let i=1;i<6;i++) ctx.lineTo(inner[i].x, inner[i].y); ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = '#1b2a44';
       ctx.lineWidth = 1;
-      ctx.stroke();
-      if (this.hoverHex && this.hoverHex.q===tile.q && this.hoverHex.r===tile.r && (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE)) {
+      ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); for (let i=1;i<6;i++) ctx.lineTo(pts[i].x,pts[i].y); ctx.closePath(); ctx.stroke();
+      const hovered = play && this.hoverHex && this.hoverHex.q===tile.q && this.hoverHex.r===tile.r;
+      if (hovered) {
+        ctx.fillStyle = hexA(this.placementValid ? pal.primary : '#FF536A', 0.16);
+        ctx.fill();
         ctx.strokeStyle = this.placementValid ? pal.primary : '#FF536A';
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -1730,6 +1925,7 @@ export class Game {
       }
     }
     this.drawRoutes(ctx);
+    this.drawIncomingGhosts(ctx);
     this.drawPortals(ctx);
     this.drawReactor(ctx);
     // Amplifier links
@@ -1744,34 +1940,10 @@ export class Game {
       }
       ctx.restore();
     }
-    // Selected tower range
-    if (this.selectedTowerId) {
-      const t = this.towers.find(t=>t.id===this.selectedTowerId);
-      if (t && t.type !== TT.AMP) {
-        const p = axialToPixel(t.q,t.r);
-        const def = TOWER_DEFS[t.type];
-        ctx.save();
-        ctx.strokeStyle = 'rgba(238,246,255,0.35)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6,6]);
-        ctx.beginPath();
-        ctx.arc(p.x,p.y, def.range*HEX_STEP, 0, Math.PI*2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      } else if (t && t.type === TT.AMP) {
-        const p = axialToPixel(t.q,t.r);
-        const def = TOWER_DEFS[t.type];
-        ctx.save();
-        ctx.strokeStyle = 'rgba(84,247,197,0.4)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6,6]);
-        ctx.beginPath();
-        ctx.arc(p.x,p.y, def.range*HEX_STEP*(t.specExtendedField?1.35:1), 0, Math.PI*2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      }
+    if (this.selectedTowerId) this.drawTowerRange(ctx, this.selectedTowerId, 1);
+    else if (this.hoverHex) {
+      const ht = this.towers.find(t => t.q === this.hoverHex!.q && t.r === this.hoverHex!.r);
+      if (ht) this.drawTowerRange(ctx, ht.id, 0.55);
     }
     // Placement ghost
     if (this.selectedTowerType && this.hoverHex && this.placementValid && (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE)) {
@@ -1781,18 +1953,10 @@ export class Game {
       this.drawTowerShape(ctx, this.selectedTowerType, p.x, p.y, 1, 0);
       ctx.restore();
       const def = TOWER_DEFS[this.selectedTowerType];
-      if (def.range > 0) {
-        ctx.save();
-        ctx.strokeStyle = hexA(pal.primary, 0.35);
-        ctx.setLineDash([4,4]);
-        ctx.beginPath();
-        ctx.arc(p.x,p.y, def.range*HEX_STEP, 0, Math.PI*2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      }
+      if (def.range > 0) this.drawRangeDisc(ctx, p.x, p.y, def.range * HEX_STEP, def.color, 0.7);
     }
     this.drawTutorialHint(ctx);
+    this.drawOnboardingLabels(ctx);
   }
 
   /** Animated chevrons along active routes. */
@@ -1879,9 +2043,10 @@ export class Game {
         }
       }
       ctx.restore();
-      // Next-wave badge: tells the player exactly where the attack comes from
+      // Next-wave badge — skip text while onboarding already labels this portal
       if (incoming && intel) {
-        const count = intel.portals.get(i)!;
+        const coach = this.getCoach();
+        const briefing = !!coach && (coach.step === 'mission' || coach.step === 'place' || coach.step === 'armed');
         const pulse = 0.5 + 0.5*Math.sin(this.time*4);
         ctx.save();
         ctx.strokeStyle = `rgba(255,181,71,${0.35+0.45*pulse})`;
@@ -1889,13 +2054,13 @@ export class Game {
         ctx.setLineDash([7,5]);
         ctx.beginPath(); ctx.arc(p.x, p.y, HEX_RADIUS*1.08 + pulse*4, 0, Math.PI*2); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.textAlign = 'center';
-        ctx.fillStyle = `rgba(255,181,71,${0.8+0.2*pulse})`;
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText(`\u25BC WAVE ${intel.def.number}`, p.x, p.y - HEX_RADIUS - 15);
-        ctx.fillStyle = 'rgba(238,246,255,0.9)';
-        ctx.font = '10px monospace';
-        ctx.fillText(`${count} HOSTILE${count > 1 ? 'S' : ''} INBOUND`, p.x, p.y - HEX_RADIUS - 3);
+        if (!briefing) {
+          const count = intel.portals.get(i)!;
+          ctx.textAlign = 'center';
+          ctx.fillStyle = `rgba(255,181,71,${0.85+0.15*pulse})`;
+          ctx.font = 'bold 11px monospace';
+          ctx.fillText(`W${intel.def.number}  ×${count}`, p.x, p.y - HEX_RADIUS - 8);
+        }
         ctx.restore();
       }
     }
@@ -1906,7 +2071,8 @@ export class Game {
     const R = HEX_RADIUS*1.6;
     const t = this.time;
     const pal = this.palette();
-    const intensify = this.preFinal ? 1.35 : 1;
+    const menuGlow = this.state === GS.MAIN_MENU || this.state === GS.HOW_TO || this.state === GS.LEADERBOARD || this.state === GS.SETTINGS;
+    const intensify = this.preFinal ? 1.35 : menuGlow ? 1.28 : 1;
     ctx.save();
     ctx.translate(p.x,p.y);
     const auraColor = this.state === GS.VICTORY ? '#00E5FF' : pal.primary;
@@ -1971,10 +2137,104 @@ export class Game {
     ctx.setLineDash([5,5]);
     ctx.beginPath(); ctx.arc(p.x, p.y, TOWER_DEFS[TT.BOLT].range*HEX_STEP, 0, Math.PI*2); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(0,229,255,0.85)';
-    ctx.font = 'bold 10px monospace';
+    ctx.fillStyle = 'rgba(0,229,255,0.95)';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('BOLT SENTINEL', p.x, p.y - HEX_RADIUS - 8);
+    ctx.fillText('BUILD', p.x, p.y - HEX_RADIUS - 8);
+    ctx.restore();
+  }
+
+  /** World-space captions so the first minute is readable without a manual. */
+  drawOnboardingLabels(ctx: CanvasRenderingContext2D) {
+    const card = this.getCoach();
+    if (!card) return;
+    const pulse = 0.55 + 0.45 * Math.sin(this.time * 3);
+    ctx.save();
+    ctx.textAlign = 'center';
+    if (card.step === 'mission' || card.step === 'place' || card.step === 'armed') {
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = `rgba(0,229,255,${0.8 + 0.2 * pulse})`;
+      ctx.fillText('CORE', 0, -HEX_RADIUS * 2.15);
+      const portal = this.board.portals[0];
+      if (portal) {
+        const pp = axialToPixel(portal.q, portal.r);
+        ctx.fillStyle = `rgba(255,83,106,${0.75 + 0.25 * pulse})`;
+        ctx.fillText('ENTER', pp.x, pp.y - HEX_RADIUS - 8);
+      }
+    }
+    ctx.restore();
+  }
+
+  drawRangeDisc(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, alpha = 1) {
+    ctx.save();
+    const g = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
+    g.addColorStop(0, hexA(color, 0.12 * alpha));
+    g.addColorStop(1, hexA(color, 0.03 * alpha));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = hexA(color, 0.45 * alpha);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawTowerRange(ctx: CanvasRenderingContext2D, towerId: number, alpha = 1) {
+    const t = this.towers.find(tw => tw.id === towerId);
+    if (!t) return;
+    const p = axialToPixel(t.q, t.r);
+    const def = TOWER_DEFS[t.type];
+    const range = def.range * HEX_STEP * (t.type === TT.AMP && t.specExtendedField ? 1.35 : 1);
+    this.drawRangeDisc(ctx, p.x, p.y, range, t.type === TT.AMP ? '#54F7C5' : def.color, alpha);
+  }
+
+  pointAlongRoute(route: {q:number;r:number}[], t: number): { x: number; y: number; ang: number } {
+    const pts = route.map(h => axialToPixel(h.q, h.r));
+    if (pts.length < 2) return { x: pts[0]?.x ?? 0, y: pts[0]?.y ?? 0, ang: 0 };
+    const segs: number[] = [];
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
+      segs.push(d); total += d;
+    }
+    let dist = ((t % 1) + 1) % 1 * total;
+    for (let i = 0; i < segs.length; i++) {
+      if (dist <= segs[i] || i === segs.length - 1) {
+        const f = segs[i] ? Math.min(1, dist / segs[i]) : 0;
+        return {
+          x: pts[i].x + (pts[i+1].x - pts[i].x) * f,
+          y: pts[i].y + (pts[i+1].y - pts[i].y) * f,
+          ang: Math.atan2(pts[i+1].y - pts[i].y, pts[i+1].x - pts[i].x),
+        };
+      }
+      dist -= segs[i];
+    }
+    const last = pts[pts.length - 1];
+    return { x: last.x, y: last.y, ang: 0 };
+  }
+
+  drawIncomingGhosts(ctx: CanvasRenderingContext2D) {
+    if (this.state !== GS.BUILD_PHASE) return;
+    const intel = this.getUpcomingIntel();
+    if (!intel) return;
+    ctx.save();
+    for (const [ri] of intel.portals) {
+      const route = this.board.routes[ri];
+      if (!route || route.length < 2) continue;
+      const n = this.settings.reducedMotion ? 1 : 3;
+      for (let g = 0; g < n; g++) {
+        const t = this.settings.reducedMotion ? 0.38 : (this.time * 0.12 + g / n) % 1;
+        const pos = this.pointAlongRoute(route, t);
+        ctx.save();
+        ctx.translate(pos.x, pos.y);
+        ctx.rotate(pos.ang);
+        ctx.globalAlpha = 0.18 + (1 - t) * 0.12;
+        ctx.fillStyle = '#FF8A9A';
+        ctx.beginPath();
+        ctx.moveTo(8, 0); ctx.lineTo(-5, -5); ctx.lineTo(-5, 5); ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
     ctx.restore();
   }
 
@@ -2305,16 +2565,25 @@ export class Game {
         ctx.beginPath(); ctx.arc(0,0, e.radius + 26*t, 0, Math.PI*2); ctx.stroke();
       }
       ctx.restore();
-      // health bars
-      const barW = Math.max(20, e.radius*2.2);
+      const inspecting = this.inspectedEnemyId === e.id || this.hoverEnemy?.id === e.id;
+      if (inspecting) {
+        ctx.save();
+        ctx.strokeStyle = hexA('#EEF6FF', 0.55 + 0.25 * Math.sin(this.time * 6));
+        ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 8, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+      }
       const hpRatio = Math.max(0, e.hp / e.maxHp);
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(e.x - barW/2, e.y - e.radius - 8, barW, 4);
-      ctx.fillStyle = e.shield>0 ? '#4FA8FF' : '#54F7C5';
-      ctx.fillRect(e.x - barW/2, e.y - e.radius - 8, barW*hpRatio, 4);
-      if (e.shield > 0 && e.maxShield > 0) {
-        ctx.fillStyle = 'rgba(79,168,255,0.85)';
-        ctx.fillRect(e.x - barW/2, e.y - e.radius - 12, barW*(e.shield/e.maxShield), 2.5);
+      if (inspecting || e.isBoss || hpRatio < 0.999 || e.shield > 0) {
+        const barW = Math.max(20, e.radius*2.2);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(e.x - barW/2, e.y - e.radius - 8, barW, 4);
+        ctx.fillStyle = e.shield>0 ? '#4FA8FF' : '#54F7C5';
+        ctx.fillRect(e.x - barW/2, e.y - e.radius - 8, barW*hpRatio, 4);
+        if (e.shield > 0 && e.maxShield > 0) {
+          ctx.fillStyle = 'rgba(79,168,255,0.85)';
+          ctx.fillRect(e.x - barW/2, e.y - e.radius - 12, barW*(e.shield/e.maxShield), 2.5);
+        }
       }
     }
   }
@@ -2446,6 +2715,45 @@ export class Game {
       ctx.fillStyle = `rgba(238,246,255,${Math.min(0.85, this.flashTimer*1.6)})`;
       ctx.fillRect(0,0,w,h);
     }
+    this.drawInspectCard(ctx, w, h);
+  }
+
+  drawInspectCard(ctx: CanvasRenderingContext2D, sw: number, sh: number) {
+    if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) return;
+    const e = (this.inspectedEnemyId != null
+      ? this.enemies.find(x => x.id === this.inspectedEnemyId && x.alive && !x.dying)
+      : null) || (this.hoverEnemy && this.hoverEnemy.alive && !this.hoverEnemy.dying ? this.hoverEnemy : null);
+    if (!e) {
+      if (this.inspectedEnemyId != null && !this.enemies.some(x => x.id === this.inspectedEnemyId && x.alive)) this.inspectedEnemyId = null;
+      return;
+    }
+    const def = ENEMY_DEFS[e.type];
+    const sp = this.camera.worldToScreen({ x: e.x, y: e.y });
+    const cardW = 210, cardH = 86;
+    let x = sp.x + 16, y = sp.y - cardH - 8;
+    if (x + cardW > sw - 8) x = sp.x - cardW - 16;
+    if (y < 52) y = sp.y + 18;
+    if (y + cardH > sh - 8) y = sh - cardH - 8;
+    ctx.save();
+    ctx.fillStyle = 'rgba(7,11,23,0.92)';
+    ctx.strokeStyle = hexA(def.color, 0.7);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.rect(x, y, cardW, cardH);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = def.color;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(e.bossName || def.name, x + 10, y + 18);
+    ctx.fillStyle = '#8496B5';
+    ctx.font = '10px monospace';
+    ctx.fillText(`HP ${Math.max(0, Math.ceil(e.hp))}/${e.maxHp}${e.shield > 0 ? `  SH ${Math.ceil(e.shield)}` : ''}`, x + 10, y + 34);
+    ctx.fillText(`ARMOR ${e.armor}   LEAK ${e.leakDamage}   ${def.speed.toFixed(2)} HEX/S`, x + 10, y + 50);
+    ctx.fillStyle = '#C5D0E0';
+    ctx.font = '9.5px monospace';
+    const desc = def.desc.length > 34 ? def.desc.slice(0, 32) + '…' : def.desc;
+    ctx.fillText(desc, x + 10, y + 70);
+    ctx.restore();
   }
 
   drawHUD(ctx:CanvasRenderingContext2D, w:number, h:number) {
@@ -2646,6 +2954,60 @@ export class Game {
   }
 
   getSelectedTower() { return this.selectedTowerId ? this.towers.find(t=>t.id===this.selectedTowerId) || null : null; }
+
+  skipCoach() {
+    if (!this.coach) return;
+    this.coach.dismissed = true;
+    this.uiVersion++;
+  }
+
+  /** Persistent briefing card for the first wave. Independent of canvas banners. */
+  getCoach(): CoachCard | null {
+    if (!this.coach || this.coach.dismissed) return null;
+    const countdown = this.tutorial?.stage === 'countdown' ? Math.max(0, Math.ceil(this.tutorial.countdown)) : 0;
+    switch (this.coach.step) {
+      case 'mission':
+        return {
+          step: 'mission', index: 1, total: 5, kicker: 'FIELD BRIEFING',
+          title: 'This is the Last Core',
+          body: 'The glowing reactor in the center is all that remains. The bar at the top is its integrity. If it reaches zero, the run is over.',
+          hint: 'Look at the center of the board.',
+          spotlight: 'core',
+        };
+      case 'place':
+        return {
+          step: 'place', index: 2, total: 5, kicker: 'BUILD',
+          title: 'Place your first tower',
+          body: 'Bolt Sentinel is already selected (50⚡ from the top-right). Click the glowing hex beside the core. Towers fire on their own — you only choose where they stand.',
+          hint: 'Click the highlighted hex.',
+          spotlight: 'hex',
+        };
+      case 'armed':
+        return {
+          step: 'armed', index: 3, total: 5, kicker: 'INCOMING',
+          title: countdown > 0 ? `Wave 1 launches in ${countdown}s` : 'Wave 1 is launching',
+          body: 'Enemies will march the western route toward the core. Your tower shoots automatically. Press START WAVE if you do not want to wait.',
+          hint: 'SPACE or START WAVE launches now.',
+          spotlight: 'start',
+        };
+      case 'combat':
+        return {
+          step: 'combat', index: 4, total: 5, kicker: 'COMBAT',
+          title: 'Hold the western approach',
+          body: 'Red units spawn from the west portal and follow the path. Stop them before they touch the core. Destroyed enemies grant energy.',
+          hint: 'Watch REACTOR INTEGRITY at the top.',
+          spotlight: 'combat',
+        };
+      case 'cleared':
+        return {
+          step: 'cleared', index: 5, total: 5, kicker: 'BUILD PHASE',
+          title: 'Spend the energy you earned',
+          body: 'Wave bonus just hit your ⚡ reserve. Place more towers from the right-hand shop, or tap a tower to upgrade it. You decide when the next wave starts.',
+          hint: 'Build, then press START WAVE.',
+          spotlight: 'shop',
+        };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

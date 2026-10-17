@@ -9,25 +9,25 @@ type Spec = Record<number, Partial<Record<EnemyType, Partial<Record<0|1|2, numbe
 
 const SPEC: Spec = {
   1:  { [E.SCOUT]: { 0: 5 } },
-  2:  { [E.SCOUT]: { 0: 6, 1: 3 } },
-  3:  { [E.SCOUT]: { 0: 6 }, [E.BRUISER]: { 1: 2 } },
-  4:  { [E.DASHER]: { 1: 5 }, [E.SCOUT]: { 0: 4 } },
-  5:  { [E.SWARMER]: { 0: 6, 1: 6 }, [E.BRUISER]: { 1: 2 } },
-  6:  { [E.SCOUT]: { 2: 7 }, [E.SWARMER]: { 0: 6 } },
-  7:  { [E.SHIELD]: { 1: 3 }, [E.DASHER]: { 2: 5 } },
-  8:  { [E.BRUISER]: { 0: 4 }, [E.SCOUT]: { 1: 6 }, [E.SWARMER]: { 2: 5 } },
-  9:  { [E.SPLITTER]: { 2: 3 }, [E.SCOUT]: { 0: 5 }, [E.SHIELD]: { 1: 2 } },
-  10: { [E.SWARMER]: { 1: 8 }, [E.BRUISER]: { 2: 3 } },
-  11: { [E.DASHER]: { 0: 6 }, [E.SCOUT]: { 1: 6 }, [E.SHIELD]: { 2: 3 } },
-  12: { [E.DISRUPTOR]: { 1: 2 }, [E.SCOUT]: { 0: 7 }, [E.BRUISER]: { 2: 3 } },
-  13: { [E.SPLITTER]: { 0: 4 }, [E.DASHER]: { 1: 7 }, [E.SWARMER]: { 2: 6 } },
-  14: { [E.SHIELD]: { 0: 4 }, [E.BRUISER]: { 1: 5 }, [E.SWARMER]: { 2: 10 } },
-  15: { [E.DISRUPTOR]: { 0: 3 }, [E.SPLITTER]: { 1: 3 }, [E.DASHER]: { 2: 8 } },
-  16: { [E.SHIELD]: { 2: 6 }, [E.SWARMER]: { 0: 10 }, [E.BRUISER]: { 1: 5 } },
-  17: { [E.SPLITTER]: { 0: 5 }, [E.DISRUPTOR]: { 1: 3 }, [E.SCOUT]: { 2: 10 } },
-  18: { [E.BRUISER]: { 1: 6 }, [E.DASHER]: { 2: 8 }, [E.SHIELD]: { 0: 5 } },
-  19: { [E.DISRUPTOR]: { 0: 4 }, [E.SPLITTER]: { 1: 6 }, [E.SWARMER]: { 2: 14 } },
-  20: { [E.SHIELD]: { 1: 7 }, [E.DASHER]: { 0: 9 } },
+  2:  { [E.SCOUT]: { 0: 7, 1: 4 } },
+  3:  { [E.SCOUT]: { 0: 7 }, [E.BRUISER]: { 1: 3 } },
+  4:  { [E.DASHER]: { 1: 6 }, [E.SCOUT]: { 0: 5 } },
+  5:  { [E.SWARMER]: { 0: 8, 1: 8 }, [E.BRUISER]: { 1: 2 } },
+  6:  { [E.SCOUT]: { 2: 9 }, [E.SWARMER]: { 0: 8 } },
+  7:  { [E.SHIELD]: { 1: 4 }, [E.DASHER]: { 2: 7 } },
+  8:  { [E.BRUISER]: { 0: 5 }, [E.SCOUT]: { 1: 8 }, [E.SWARMER]: { 2: 7 } },
+  9:  { [E.SPLITTER]: { 2: 4 }, [E.SCOUT]: { 0: 6 }, [E.SHIELD]: { 1: 3 } },
+  10: { [E.SWARMER]: { 1: 10 }, [E.BRUISER]: { 2: 4 } },
+  11: { [E.DASHER]: { 0: 7 }, [E.SCOUT]: { 1: 8 }, [E.SHIELD]: { 2: 4 } },
+  12: { [E.DISRUPTOR]: { 1: 3 }, [E.SCOUT]: { 0: 9 }, [E.BRUISER]: { 2: 4 } },
+  13: { [E.SPLITTER]: { 0: 5 }, [E.DASHER]: { 1: 9 }, [E.SWARMER]: { 2: 8 } },
+  14: { [E.SHIELD]: { 0: 5 }, [E.BRUISER]: { 1: 6 }, [E.SWARMER]: { 2: 12 } },
+  15: { [E.DISRUPTOR]: { 0: 4 }, [E.SPLITTER]: { 1: 4 }, [E.DASHER]: { 2: 10 } },
+  16: { [E.SHIELD]: { 2: 7 }, [E.SWARMER]: { 0: 13 }, [E.BRUISER]: { 1: 6 } },
+  17: { [E.SPLITTER]: { 0: 6 }, [E.DISRUPTOR]: { 1: 4 }, [E.SCOUT]: { 2: 12 } },
+  18: { [E.BRUISER]: { 1: 7 }, [E.DASHER]: { 2: 10 }, [E.SHIELD]: { 0: 6 } },
+  19: { [E.DISRUPTOR]: { 0: 5 }, [E.SPLITTER]: { 1: 7 }, [E.SWARMER]: { 2: 17 } },
+  20: { [E.SHIELD]: { 1: 8 }, [E.DASHER]: { 0: 9 } },
 };
 
 const INTERVAL_RANGES: Partial<Record<EnemyType, [number, number]>> = {
@@ -154,10 +154,10 @@ describe('campaign wave data', () => {
 describe('next-wave intel (where the attack comes from)', () => {
   it('reports the attacking portals and enemy counts per wave', () => {
     expect(wavePortalCounts(getWaveDef(1)!)).toEqual([{ portal: 0, count: 5 }]);
-    expect(wavePortalCounts(getWaveDef(2)!)).toEqual([{ portal: 0, count: 6 }, { portal: 1, count: 3 }]);
-    expect(wavePortalCounts(getWaveDef(6)!)).toEqual([{ portal: 0, count: 6 }, { portal: 2, count: 7 }]);
-    expect(wavePortalCounts(getWaveDef(10)!)).toEqual([{ portal: 0, count: 1 }, { portal: 1, count: 8 }, { portal: 2, count: 3 }]);
-    expect(wavePortalCounts(getWaveDef(20)!)).toEqual([{ portal: 0, count: 9 }, { portal: 1, count: 7 }, { portal: 2, count: 1 }]);
+    expect(wavePortalCounts(getWaveDef(2)!)).toEqual([{ portal: 0, count: 7 }, { portal: 1, count: 4 }]);
+    expect(wavePortalCounts(getWaveDef(6)!)).toEqual([{ portal: 0, count: 8 }, { portal: 2, count: 9 }]);
+    expect(wavePortalCounts(getWaveDef(10)!)).toEqual([{ portal: 0, count: 1 }, { portal: 1, count: 10 }, { portal: 2, count: 4 }]);
+    expect(wavePortalCounts(getWaveDef(20)!)).toEqual([{ portal: 0, count: 9 }, { portal: 1, count: 8 }, { portal: 2, count: 1 }]);
   });
 
   it('includes endless bosses exactly once (they live in groups)', () => {

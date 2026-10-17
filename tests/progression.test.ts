@@ -121,8 +121,8 @@ function autoAbilities(g: Game) {
     return;
   }
   // emergency: crowd near the core
-  const close = g.enemies.filter(e => e.alive && e.routeIndex >= 7).length;
-  if (close >= 4 && g.cooldowns.emp === 0 && g.energy >= BALANCE.abilityCosts.emp) g.activateEmp();
+  const close = g.enemies.filter(e => e.alive && e.routeIndex >= 6).length;
+  if (close >= 3 && g.cooldowns.emp === 0 && g.energy >= BALANCE.abilityCosts.emp) g.activateEmp();
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +157,25 @@ describe('onboarding (first 10 seconds)', () => {
     expect(g.towers.length).toBe(1);
     expect(g.towers[0].q).toBe(2);
     expect(g.tutorial?.stage).toBe('countdown');
+  });
+
+  it('walks the coach briefing: mission -> place -> armed -> combat', async () => {
+    const g = await createGame();
+    g.startRun(D.COMMANDER);
+    expect(g.coach?.step).toBe('mission');
+    expect(g.getCoach()?.title).toMatch(/Last Core/i);
+    step(g, 3.2);
+    expect(g.coach?.step).toBe('place');
+    expect(g.getCoach()?.spotlight).toBe('hex');
+    g.tryPlaceTower(T.BOLT, -1, -1);
+    expect(g.coach?.step).toBe('armed');
+    expect(g.getCoach()?.title).toMatch(/Wave 1/i);
+    step(g, 6);
+    expect(g.coach?.step).toBe('combat');
+    expect(g.getCoach()?.spotlight).toBe('combat');
+    g.skipCoach();
+    expect(g.getCoach()).toBeNull();
+    expect(g.waveActive).toBe(true);
   });
 });
 

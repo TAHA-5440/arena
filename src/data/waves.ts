@@ -1,5 +1,6 @@
 import type { EnemyType, Difficulty } from '../types/game';
-import { EnemyType as E, Difficulty as D } from '../types/game';
+import { EnemyType as E } from '../types/game';
+import { BALANCE } from './balance';
 
 // ---------------------------------------------------------------------------
 // Wave definition schema — data-driven, editable without touching the engine.
@@ -85,47 +86,47 @@ export const WAVES: WaveDef[] = [
     g(E.SCOUT, 5, 0, 1.8, 0),
   ]),
   W(2, 1, 'SECOND BREACH', [
-    g(E.SCOUT, 6, 0, 1.6, 0),
-    g(E.SCOUT, 3, 1, 1.6, 5),
+    g(E.SCOUT, 7, 0, 1.45, 0),
+    g(E.SCOUT, 4, 1, 1.45, 4),
   ], { activateRoute: 1, callouts: [{ title: 'NEW ENEMY APPROACH DETECTED', sub: 'Northeast portal online' }] }),
   W(3, 1, 'HEAVY CONTACT', [
-    g(E.SCOUT, 6, 0, 1.5, 0),
-    g(E.BRUISER, 2, 1, 2.5, 2),
+    g(E.SCOUT, 7, 0, 1.35, 0),
+    g(E.BRUISER, 3, 1, 2.2, 2),
   ], { callouts: [{ title: 'ARMORED UNITS DETECTED', sub: 'Bruisers are slow but durable — stack your fire' }] }),
   W(4, 1, 'SPEED BREAKERS', [
-    g(E.SCOUT, 4, 0, 1.5, 0),
-    g(E.DASHER, 5, 1, 1.4, 1),
+    g(E.SCOUT, 5, 0, 1.35, 0),
+    g(E.DASHER, 6, 1, 1.25, 1),
   ], { callouts: [{ title: 'FAST UNIT INBOUND', sub: 'Cryo towers can slow it down' }] }),
   W(5, 1, 'SWARM ATTACK', [
-    g(E.SWARMER, 3, 0, 0.8, 0),
-    g(E.SWARMER, 3, 1, 0.8, 2),
-    g(E.BRUISER, 2, 1, 2.5, 4),
-    g(E.SWARMER, 3, 0, 0.55, 11),
-    g(E.SWARMER, 3, 1, 0.55, 12),
+    g(E.SWARMER, 4, 0, 0.65, 0),
+    g(E.SWARMER, 4, 1, 0.65, 2),
+    g(E.BRUISER, 2, 1, 2.2, 4),
+    g(E.SWARMER, 4, 0, 0.52, 10),
+    g(E.SWARMER, 4, 1, 0.52, 11),
   ], { callouts: [{ title: 'SWARM FORMATION', sub: 'Grouped targets — chain and blast weapons shine' }] }),
 
   // ----- ACT II — THE SIEGE -----
   W(6, 2, 'THIRD FRONT', [
-    g(E.SCOUT, 7, 2, 1.5, 0),
-    g(E.SWARMER, 6, 0, 0.8, 1),
+    g(E.SCOUT, 9, 2, 1.35, 0),
+    g(E.SWARMER, 8, 0, 0.65, 1),
   ], { activateRoute: 2, callouts: [{ title: 'THIRD PORTAL ONLINE', sub: 'Southeast approach active — all routes exposed' }] }),
   W(7, 2, 'SHIELD PROTOCOL', [
-    g(E.SHIELD, 3, 1, 2.5, 0),
-    g(E.DASHER, 5, 2, 1.5, 2),
+    g(E.SHIELD, 4, 1, 2.2, 0),
+    g(E.DASHER, 7, 2, 1.25, 2),
   ], { callouts: [{ title: 'SHIELDED ENEMY', sub: 'Break its energy barrier first — rail guns excel' }] }),
   W(8, 2, 'THREE-FRONT ATTACK', [
-    g(E.BRUISER, 4, 0, 2.5, 0),
-    g(E.SCOUT, 6, 1, 1.5, 0),
-    g(E.SWARMER, 5, 2, 0.8, 1),
+    g(E.BRUISER, 5, 0, 2.2, 0),
+    g(E.SCOUT, 8, 1, 1.35, 0),
+    g(E.SWARMER, 7, 2, 0.62, 1),
   ]),
   W(9, 2, 'CHAIN REACTION', [
-    g(E.SPLITTER, 3, 2, 2.4, 0),
-    g(E.SCOUT, 5, 0, 1.5, 0),
-    g(E.SHIELD, 2, 1, 2.5, 2),
+    g(E.SPLITTER, 4, 2, 2.2, 0),
+    g(E.SCOUT, 6, 0, 1.35, 0),
+    g(E.SHIELD, 3, 1, 2.2, 2),
   ], { callouts: [{ title: 'SPLITTER DETECTED', sub: 'Destroys into two smaller units' }] }),
   W(10, 2, 'IRON COLOSSUS', [
-    g(E.SWARMER, 8, 1, 0.7, 2),
-    g(E.BRUISER, 3, 2, 2.5, 3),
+    g(E.SWARMER, 10, 1, 0.58, 2),
+    g(E.BRUISER, 4, 2, 2.2, 3),
   ], {
     boss: { type: E.TITAN, name: 'IRON COLOSSUS', portal: 0, start: 4 },
     callouts: [{ title: 'WARNING — MASSIVE HOSTILE SIGNATURE', sub: 'Armored advance on the western route' }],
@@ -133,58 +134,58 @@ export const WAVES: WaveDef[] = [
 
   // ----- ACT III — SYSTEM BREACH -----
   W(11, 3, 'REINFORCEMENT PROTOCOL', [
-    g(E.DASHER, 6, 0, 1.4, 0),
-    g(E.SCOUT, 6, 1, 1.5, 1),
-    g(E.SHIELD, 3, 2, 2.5, 2),
+    g(E.DASHER, 7, 0, 1.22, 0),
+    g(E.SCOUT, 8, 1, 1.35, 1),
+    g(E.SHIELD, 4, 2, 2.2, 2),
   ]),
   W(12, 3, 'SIGNAL JAMMERS', [
-    g(E.DISRUPTOR, 2, 1, 3.0, 0),
-    g(E.SCOUT, 7, 0, 1.4, 1),
-    g(E.BRUISER, 3, 2, 2.5, 2),
+    g(E.DISRUPTOR, 3, 1, 2.7, 0),
+    g(E.SCOUT, 9, 0, 1.3, 1),
+    g(E.BRUISER, 4, 2, 2.2, 2),
   ], { callouts: [{ title: 'DISRUPTOR DETECTED', sub: 'Temporarily weakens nearby towers — watch the warning ring' }] }),
   W(13, 3, 'REPLICATION SWARM', [
-    g(E.SPLITTER, 4, 0, 2.2, 0),
-    g(E.DASHER, 7, 1, 1.4, 5),
-    g(E.SWARMER, 6, 2, 0.8, 8),
+    g(E.SPLITTER, 5, 0, 2.1, 0),
+    g(E.DASHER, 9, 1, 1.22, 5),
+    g(E.SWARMER, 8, 2, 0.62, 8),
   ]),
   W(14, 3, 'ARMORED FORMATION', [
-    g(E.SHIELD, 4, 0, 2.8, 0),
-    g(E.BRUISER, 5, 1, 2.5, 1),
-    g(E.SWARMER, 10, 2, 0.7, 2),
+    g(E.SHIELD, 5, 0, 2.4, 0),
+    g(E.BRUISER, 6, 1, 2.2, 1),
+    g(E.SWARMER, 12, 2, 0.58, 2),
   ]),
   W(15, 3, 'FORTRESS BREAKER', [
     // Three distinct pulses: disruption -> splitting -> fast attack
-    g(E.DISRUPTOR, 3, 0, 3.0, 0),
-    g(E.SPLITTER, 3, 1, 2.4, 7),
-    g(E.DASHER, 8, 2, 1.3, 14),
+    g(E.DISRUPTOR, 4, 0, 2.7, 0),
+    g(E.SPLITTER, 4, 1, 2.2, 7),
+    g(E.DASHER, 10, 2, 1.22, 14),
   ]),
 
   // ----- ACT IV — LAST STAND -----
   W(16, 4, 'TOTAL ENGAGEMENT', [
-    g(E.SHIELD, 6, 2, 2.5, 0),
-    g(E.SWARMER, 10, 0, 0.7, 0),
-    g(E.BRUISER, 5, 1, 2.2, 1),
+    g(E.SHIELD, 7, 2, 2.2, 0),
+    g(E.SWARMER, 13, 0, 0.58, 0),
+    g(E.BRUISER, 6, 1, 2.05, 1),
   ]),
   W(17, 4, 'CASCADE FAILURE', [
-    g(E.SPLITTER, 5, 0, 2.2, 0),
-    g(E.DISRUPTOR, 3, 1, 3.0, 1),
-    g(E.SCOUT, 10, 2, 1.4, 2),
+    g(E.SPLITTER, 6, 0, 2.1, 0),
+    g(E.DISRUPTOR, 4, 1, 2.7, 1),
+    g(E.SCOUT, 12, 2, 1.3, 2),
   ]),
   W(18, 4, 'HIGH-SPEED ASSAULT', [
-    g(E.BRUISER, 6, 1, 2.3, 0),
-    g(E.DASHER, 8, 2, 1.3, 1),
-    g(E.SHIELD, 5, 0, 2.6, 0),
+    g(E.BRUISER, 7, 1, 2.1, 0),
+    g(E.DASHER, 10, 2, 1.22, 1),
+    g(E.SHIELD, 6, 0, 2.3, 0),
   ]),
   W(19, 4, 'FINAL WARNING', [
-    g(E.DISRUPTOR, 4, 0, 3.0, 0),
-    g(E.SWARMER, 4, 2, 0.9, 3),
-    g(E.SPLITTER, 6, 1, 2.4, 6),
-    g(E.SWARMER, 5, 2, 0.7, 10),
-    g(E.SWARMER, 5, 2, 0.55, 16),
+    g(E.DISRUPTOR, 5, 0, 2.7, 0),
+    g(E.SWARMER, 5, 2, 0.7, 3),
+    g(E.SPLITTER, 7, 1, 2.2, 6),
+    g(E.SWARMER, 6, 2, 0.58, 10),
+    g(E.SWARMER, 6, 2, 0.5, 16),
   ]),
   W(20, 4, 'THE NULL ARCHON', [
-    g(E.SHIELD, 7, 1, 2.5, 2),
-    g(E.DASHER, 9, 0, 1.3, 3),
+    g(E.SHIELD, 8, 1, 2.2, 2),
+    g(E.DASHER, 9, 0, 1.22, 3),
   ], {
     boss: { type: E.BOSS, name: 'THE NULL ARCHON', portal: 2, start: 5 },
     callouts: [{ title: 'FINAL CORE ASSAULT', sub: 'All portals pulsing — hold the line' }],
@@ -210,11 +211,7 @@ export function wavePortalCounts(def: WaveDef): { portal: number; count: number 
 export interface DiffMul { hp: number; speed: number; reward: number; }
 
 export function difficultyMul(diff: Difficulty): DiffMul {
-  switch (diff) {
-    case D.ROOKIE: return { hp: 0.80, speed: 0.92, reward: 1.10 };
-    case D.NIGHTMARE: return { hp: 1.30, speed: 1.08, reward: 1.00 };
-    default: return { hp: 1, speed: 1, reward: 1 };
-  }
+  return BALANCE.difficulty[diff] ?? BALANCE.difficulty.COMMANDER;
 }
 
 export function scaleGroups(groups: SpawnGroup[], hp: number, speed: number, reward: number): SpawnGroup[] {
@@ -278,8 +275,8 @@ export function generateEndlessWave(waveNum: number, difficulty: Difficulty, see
   const level = Math.max(1, waveNum - 20);
   const rng = mulberry32((seed ^ (waveNum * 0x9E3779B1)) >>> 0);
   const dm = difficultyMul(difficulty);
-  const hpMul = (1 + 0.07 * level) * dm.hp * (1 + Math.min(0.5, level * 0.01));
-  const speedMul = Math.min(1.28, (1 + 0.015 * level)) * dm.speed;
+  const hpMul = (1 + 0.09 * level) * dm.hp * (1 + Math.min(0.55, level * 0.012));
+  const speedMul = Math.min(1.35, (1 + 0.02 * level)) * dm.speed;
   const rewardMul = (1 + 0.05 * level) * dm.reward;
   const isBoss = waveNum % 5 === 0;
 
