@@ -263,9 +263,9 @@ export class UIManager {
     el.querySelector('#btnContinue')!.addEventListener('click', () => {
       if (g.loadGame()) { g.audio.click(); this.render(); g.loop.start(); }
     });
-    el.querySelector('#btnHow')!.addEventListener('click', () => { g.state = GS.HOW_TO; g.audio.click(); g.audio.menuOpen(); this.render(); });
-    el.querySelector('#btnScores')!.addEventListener('click', () => { g.state = GS.LEADERBOARD; g.audio.click(); g.audio.menuOpen(); this.render(); });
-    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.MAIN_MENU; g.state = GS.SETTINGS; g.audio.click(); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnHow')!.addEventListener('click', () => { g.setState(GS.HOW_TO); g.audio.click(); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnScores')!.addEventListener('click', () => { g.setState(GS.LEADERBOARD); g.audio.click(); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.MAIN_MENU; g.setState(GS.SETTINGS); g.audio.click(); g.audio.menuOpen(); this.render(); });
   }
 
   renderDifficultySelect() {
@@ -525,9 +525,9 @@ export class UIManager {
     this.container.appendChild(el);
     el.querySelector('#btnResume')!.addEventListener('click', () => { g.audio.click(); g.resume(); this.render(); });
     el.querySelector('#btnRestart')!.addEventListener('click', () => { g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); });
-    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.PAUSED; g.state = GS.SETTINGS; g.audio.menuOpen(); this.render(); });
-    el.querySelector('#btnSaveExit')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
+    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.PAUSED; g.setState(GS.SETTINGS); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnSaveExit')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.setState(GS.MAIN_MENU); g.audio.startMusic(); g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.setState(GS.MAIN_MENU); g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   // -------------------------------------------------------------------------
@@ -567,7 +567,7 @@ export class UIManager {
     };
     el.querySelector('#btnEndless')!.addEventListener('click', () => { submit(); g.audio.click(); g.startEndless(); this.render(); g.loop.start(); });
     el.querySelector('#btnAgain')!.addEventListener('click', () => { submit(); g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.clearSave(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.clearSave(); g.paused = false; g.audio.onResume(); g.setState(GS.MAIN_MENU); g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   renderGameOver() {
@@ -594,7 +594,7 @@ export class UIManager {
       g.submitScore(input ? input.value : 'CMDR');
     };
     el.querySelector('#btnRetry')!.addEventListener('click', () => { submit(); g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); g.loop.start(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.paused = false; g.audio.onResume(); g.setState(GS.MAIN_MENU); g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   // -------------------------------------------------------------------------
@@ -645,7 +645,7 @@ export class UIManager {
     el.querySelector('#btnBack')!.addEventListener('click', () => {
       g.audio.click();
       g.audio.menuClose();
-      g.state = this.settingsReturn === GS.PAUSED ? GS.PAUSED : GS.MAIN_MENU;
+      g.setState(this.settingsReturn === GS.PAUSED ? GS.PAUSED : GS.MAIN_MENU);
       this.render();
     });
   }
@@ -665,7 +665,7 @@ export class UIManager {
         <button class="menu-btn" id="btnBack" style="margin-top:12px">BACK</button>
       </div>`;
     this.container.appendChild(el);
-    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.state = GS.MAIN_MENU; this.render(); });
+    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.setState(GS.MAIN_MENU); this.render(); });
   }
 
   renderHowTo() {
@@ -689,6 +689,6 @@ export class UIManager {
         <button class="menu-btn" id="btnBack" style="margin-top:12px">BACK</button>
       </div>`;
     this.container.appendChild(el);
-    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.state = GS.MAIN_MENU; this.render(); });
+    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.setState(GS.MAIN_MENU); this.render(); });
   }
 }

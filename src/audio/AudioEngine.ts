@@ -35,6 +35,8 @@ export class AudioEngine {
   private musicVol = AUDIO_DEFAULTS.musicVolume;
   private uiVol = AUDIO_DEFAULTS.uiVolume;
   private muted = false;
+  /** Platform-level mute (CrazyGames SDK). Always wins over `muted`. */
+  private sdkMuted = false;
   private quality: AudioQuality = defaultAudioQuality();
   private pausedGame = false;
   private sfxPausedMul = 1;
@@ -134,6 +136,10 @@ export class AudioEngine {
     };
     window.addEventListener('pointerdown', unlock, { passive: true });
     window.addEventListener('keydown', unlock);
+    // iOS only allows resuming the AudioContext from a direct user gesture.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('touchend', unlock, { passive: true });
+    }
   }
 
   private bindVisibility() {
@@ -143,7 +149,7 @@ export class AudioEngine {
       if (!this.ctx) return;
       if (document.hidden) {
         try { this.ctx.suspend(); } catch { /* */ }
-      } else if (!this.muted) {
+      } else if (!this.muted && !this.sdkMuted) {
         this.resume();
       }
     });
@@ -162,6 +168,14 @@ export class AudioEngine {
   setMaster(v: number) { this.masterVol = clamp01(v); this.applyGains(); }
   setUi(v: number) { this.uiVol = clamp01(v); this.applyGains(); }
   setMuted(m: boolean) { this.muted = m; this.applyGains(); }
+  /**
+   * Platform mute coming from the CrazyGames SDK. It takes priority over the
+   * in-game audio toggle, so the player cannot re-enable sound while the
+   * platform has audio disabled.
+   */
+  setSdkMuted(m: boolean) { if (this.sdkMuted === m) return; this.sdkMuted = m; this.applyGains(); }
+  get isSdkMuted(): boolean { return this.sdkMuted; }
+  get isEffectivelyMuted(): boolean { return this.muted || this.sdkMuted; }
   setQuality(q: AudioQuality) {
     this.quality = q;
     this.router.configure(q, detectMobile());
@@ -183,7 +197,8 @@ export class AudioEngine {
 
   private applyGains(instant = false) {
     const t = this.ctx ? this.ctx.currentTime : 0;
-    const mute = this.muted ? 0 : 1;
+    // Platform mute wins over the in-game toggle.
+    const mute = (this.muted || this.sdkMuted) ? 0 : 1;
     const set = (node: GainNode | null, value: number) => {
       if (!node) return;
       const v = Math.max(0.0001, value);

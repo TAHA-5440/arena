@@ -12,7 +12,24 @@ npm run dev      # http://localhost:5173
 ```bash
 npm run build    # type-check + production bundle in dist/
 npm test         # vitest: routes, campaign data, full playthrough simulation
+npm run package:crazygames   # build + verify + release/hex-defender-last-core.zip
+npm run smoke:dist           # boot the real production bundle in jsdom
 ```
+
+## Publishing to CrazyGames
+
+The game ships with the [CrazyGames SDK v3](https://docs.crazygames.com/sdk/intro/) integrated
+(`src/sdk/CrazyGamesSDK.ts`): platform-level audio muting, `gameplayStart`/`gameplayStop`
+tracking, and automatic localStorage progress save. The game stays fully playable when the SDK
+is absent.
+
+```bash
+npm run package:crazygames        # -> release/hex-defender-last-core.zip
+bash scripts/make-covers.sh       # -> release/covers/cover-*.png (1920x1080, 800x1200, 800x800)
+```
+
+See `docs/CRAZYGAMES-SUBMISSION.md` for the exact submission-form answers and the
+remaining publishing checklist.
 
 ## The Campaign
 
@@ -56,9 +73,11 @@ src/
   grid/                axial hex math + board (routes/portals validated by tests)
   data/                towers, enemies, waves (authored campaign + endless generator), balance
   engine/              fixed-step loop, camera, input (pan/pinch), particles, procedural audio
+  sdk/                 CrazyGames SDK wrapper (audio mute, gameplay events, data module)
   Game.ts              simulation, boss phases, acts, onboarding, rendering
   ui/UIManager.ts      shop, intel panel, toasts, menus, victory screen
-tests/                 routes, campaign data spec, boss phases, full-campaign simulation
+tests/                 routes, campaign data spec, boss phases, full-campaign simulation, SDK integration
+scripts/               CrazyGames packaging, cover generation, dist smoke test
 ```
 
 The combat engine is fully data-driven: waves, spawns, unlocks, boss phases and balance are editable in `src/data/` without touching the engine. All visuals are procedural Canvas 2D. All audio is synthesized with the Web Audio API — six tower identities, enemy/reactor/ability effects, and an adaptive four-act electronic soundtrack with unique boss themes. No external audio assets. Master / music / SFX / UI volumes, mute, and audio quality persist in Settings.

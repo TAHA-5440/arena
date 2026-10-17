@@ -10,6 +10,7 @@ import { ENEMY_DEFS, SPLIT_CHILD } from './data/enemies';
 import { WAVES, getWaveDef, actForWave, routesForWave, waveBonusEnergy, ACTS, generateEndlessWave, difficultyMul, scaleGroups, wavePortalCounts } from './data/waves';
 import type { WaveDef, SpawnGroup } from './data/waves';
 import { BALANCE } from './data/balance';
+import { crazyGamesSDK } from './sdk/CrazyGamesSDK';
 import type { TowerInstance, EnemyInstance, Projectile, GameState, Difficulty, TowerType, EnemyType, TargetMode, SaveData, Settings, RunStats } from './types/game';
 import { GameState as GS, Difficulty as D, TowerType as TT, EnemyType as ET, TargetMode as TM, TileType as TILE } from './types/game';
 
@@ -119,6 +120,8 @@ export class Game {
   gameSpeed = 1;
   uiRoot: HTMLElement;
   uiVersion = 0;   // bumped when the DOM UI should re-render
+  /** Resolves once the CrazyGames SDK finished initialising (false if absent). */
+  sdkReady: Promise<boolean> = Promise.resolve(false);
   settings: Settings = { sfxVolume:0.7, musicVolume:0.32, masterVolume:0.85, uiVolume:0.55, muted:false, audioQuality:'high', quality:'high', reducedMotion:false, showFps:false, difficulty:D.COMMANDER };
   private lastOverdrive = 0;
   private lastAmpLinks = 0;
@@ -153,6 +156,34 @@ export class Game {
     this.setupInput();
     this.resize();
     window.addEventListener('resize', ()=>this.resize());
+    this.initCrazyGames();
+  }
+
+  // -------------------------------------------------------------------------
+  // CrazyGames SDK
+  // -------------------------------------------------------------------------
+
+  /**
+   * Boots the CrazyGames SDK (if present) and wires the platform audio mute.
+   * Runs fire-and-forget: the game is fully playable without the SDK.
+   */
+  initCrazyGames() {
+    this.sdkReady = crazyGamesSDK.init(4000, (s) => {
+      // The platform mute always wins over the in-game audio toggle.
+      this.audio.setSdkMuted(s.muteAudio);
+    }).catch(() => false);
+  }
+
+  /**
+   * Central state switch. Keeps the CrazyGames gameplay tracking in sync:
+   * the platform expects a `gameplayStart` whenever the player is in a
+   * playable state and a `gameplayStop` on every break (menu, pause, end).
+   */
+  setState(next: GameState) {
+    this.state = next;
+    const playing = next === GS.BUILD_PHASE || next === GS.COMBAT_PHASE;
+    if (playing) crazyGamesSDK.gameplayStart();
+    else crazyGamesSDK.gameplayStop();
   }
 
   resize() {
@@ -371,7 +402,7 @@ export class Game {
     if (difficulty) this.difficulty = difficulty;
     this.settings.difficulty = this.difficulty;
     this.resetRun();
-    this.state = GS.BUILD_PHASE;
+    this.setState(GS.BUILD_PHASE);
     this.audio.startMusic();
     // Onboarding: first-10-seconds script + persistent coach card
     this.tutorial = { stage: 'title', t: 0, countdown: 0 };
@@ -485,7 +516,7 @@ export class Game {
   beginWave(def: WaveDef) {
     this.currentWaveDef = def;
     this.waveActive = true;
-    this.state = GS.COMBAT_PHASE;
+    this.setState(GS.COMBAT_PHASE);
     this.waveTimer = 0;
     this.waveKilled = 0;
     this.waveLeaked = 0;
@@ -628,7 +659,7 @@ export class Game {
     if (this.fpsTimer >= 1) { this.fps = this.frameCount; this.frameCount=0; this.fpsTimer=0; }
     this.updateAnnouncements(dt);
 
-    if (this.state === GS.BOOT) { this.state = GS.MAIN_MENU; this.audio.startMusic(); return; }
+    if (this.state === GS.BOOT) { this.setState(GS.MAIN_MENU); this.audio.startMusic(); return; }
 
     if (this.state !== GS.BUILD_PHASE && this.state !== GS.COMBAT_PHASE) {
       if (!this.paused && (this.state === GS.MAIN_MENU || this.state === GS.HOW_TO || this.state === GS.LEADERBOARD || this.state === GS.SETTINGS)) {
@@ -1296,7 +1327,7 @@ export class Game {
     if (this.waveCompleteBonusGiven) return;
     this.waveCompleteBonusGiven = true;
     this.waveActive = false;
-    this.state = GS.BUILD_PHASE;
+    this.setState(GS.BUILD_PHASE);
     const n = this.wave;
 
     let energyBonus = waveBonusEnergy(n);
@@ -1361,7 +1392,7 @@ export class Game {
   }
 
   victory() {
-    this.state = GS.VICTORY;
+    this.setState(GS.VICTORY);
     this.waveActive = false;
     this.preFinal = false;
     this.audio.victory();
@@ -1376,7 +1407,7 @@ export class Game {
   }
 
   gameOver() {
-    this.state = GS.GAME_OVER;
+    this.setState(GS.GAME_OVER);
     this.waveActive = false;
     this.audio.gameOver();
     this.camera.shake(14);
@@ -1390,7 +1421,7 @@ export class Game {
   startEndless() {
     if (this.state !== GS.VICTORY) return;
     this.mode = 'endless';
-    this.state = GS.BUILD_PHASE;
+    this.setState(GS.BUILD_PHASE);
     this.wave = 20;
     this.preFinal = false;
     this.upcomingCache = null;
@@ -1603,7 +1634,7 @@ export class Game {
       this.waveActive = false;
       this.tutorial = null;
       this.coach = null;
-      this.state = GS.BUILD_PHASE;
+      this.setState(GS.BUILD_PHASE);
       this.paused = false;
       this.audio.startMusic();
       return true;
@@ -1722,8 +1753,8 @@ export class Game {
     }
   }
 
-  pause() { if (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE) { this.paused=true; this.state=GS.PAUSED; this.audio.onPause(); this.uiVersion++; } }
-  resume() { if (this.state===GS.PAUSED) { this.paused=false; this.state = this.waveActive ? GS.COMBAT_PHASE : GS.BUILD_PHASE; this.audio.onResume(); this.uiVersion++; } }
+  pause() { if (this.state===GS.BUILD_PHASE||this.state===GS.COMBAT_PHASE) { this.paused=true; this.setState(GS.PAUSED); this.audio.onPause(); this.uiVersion++; } }
+  resume() { if (this.state===GS.PAUSED) { this.paused=false; this.setState(this.waveActive ? GS.COMBAT_PHASE : GS.BUILD_PHASE); this.audio.onResume(); this.uiVersion++; } }
 
   syncAudio() {
     const alive = this.enemies.filter(e => e.alive && !e.dying);

@@ -1,5 +1,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width:100%; height:100%; overflow:hidden; background:#070B17; color:#EEF6FF; font-family: 'Segoe UI', system-ui, sans-serif; }
+/* Mobile: prevent long-press selection / magnification tool from disrupting play. */
+body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #app { position: relative; width:100%; height:100%; }
 #gameCanvas { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
 #uiRoot { position:absolute; inset:0; pointer-events:none; }
