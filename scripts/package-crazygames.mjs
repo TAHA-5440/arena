@@ -78,11 +78,13 @@ if (totalBytes > LIMIT_TOTAL) { console.error('  !! bundle too large'); process.
 
 // --- 4. write the archive ---------------------------------------------------
 
-if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
+// Only the archive is replaced — keep the rest of release/ (covers) intact.
+const zipPath = join(OUT, 'hex-defender-last-core.zip');
+if (existsSync(zipPath)) rmSync(zipPath);
 mkdirSync(OUT, { recursive: true });
 
 // Zip from inside dist/ so that index.html sits at the archive root.
-execFileSync('zip', ['-r', '-q', join(OUT, 'hex-defender-last-core.zip'), '.'], { cwd: DIST });
+execFileSync('zip', ['-r', '-q', zipPath, '.'], { cwd: DIST });
 
 console.log('\n  archive      :', relative(ROOT, join(OUT, 'hex-defender-last-core.zip')));
 console.log('\nArchive contents:');
