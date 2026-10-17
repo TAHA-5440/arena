@@ -187,6 +187,10 @@ export interface LeaderboardEntry {
 export interface Settings {
   sfxVolume: number;
   musicVolume: number;
+  masterVolume: number;
+  uiVolume: number;
+  muted: boolean;
+  audioQuality: 'low'|'standard'|'high';
   quality: 'low'|'medium'|'high';
   reducedMotion: boolean;
   showFps: boolean;

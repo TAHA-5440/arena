@@ -19,6 +19,8 @@ export class UIManager {
   toastRoot: HTMLElement;
   settingsReturn: GS = GS.MAIN_MENU;
 
+  private lastHoverBtn: Element | null = null;
+
   constructor(game: Game, root: HTMLElement) {
     this.game = game;
     this.root = root;
@@ -28,6 +30,19 @@ export class UIManager {
     this.toastRoot = document.createElement('div');
     this.toastRoot.id = 'toastRoot';
     root.appendChild(this.toastRoot);
+    this.container.addEventListener('mouseover', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || !t.closest) return;
+      const btn = t.closest('button');
+      if (!btn || btn === this.lastHoverBtn || btn.disabled) return;
+      this.lastHoverBtn = btn;
+      this.game.audio.hover();
+    });
+    this.container.addEventListener('mouseout', (e) => {
+      const t = e.target as HTMLElement | null;
+      const btn = t?.closest?.('button');
+      if (btn && btn === this.lastHoverBtn) this.lastHoverBtn = null;
+    });
     this.render();
   }
 
@@ -35,6 +50,7 @@ export class UIManager {
 
   render() {
     const g = this.game;
+    this.lastHoverBtn = null;
     this.clear();
     switch (g.state) {
       case GS.BOOT: break;
@@ -76,6 +92,21 @@ export class UIManager {
         <div class="t-cost">${def.cost} ⚡</div></div>`, 'unlock');
     }
     if (!this.container.isConnected) return;
+    const coach = g.getCoach();
+    const card = this.container.querySelector('#coachCard');
+    if (card && coach) {
+      const title = card.querySelector('#coachTitle');
+      const body = card.querySelector('#coachBody');
+      const hint = card.querySelector('#coachHint');
+      if (title) title.textContent = coach.title;
+      if (body) body.textContent = coach.body;
+      if (hint) hint.textContent = coach.hint;
+    } else if (card && !coach) {
+      card.remove();
+    }
+    this.container.querySelector('.tower-shop')?.classList.toggle('coach-spot', !!coach && (coach.spotlight === 'shop' || coach.spotlight === 'hex'));
+    this.container.querySelector('.incoming')?.classList.toggle('coach-spot', !!coach && (coach.spotlight === 'start' || coach.spotlight === 'combat'));
+    this.container.querySelector('#btnStartWave')?.classList.toggle('coach-spot-btn', !!coach && (coach.spotlight === 'start' || coach.spotlight === 'shop'));
     // shop affordability
     this.container.querySelectorAll<HTMLButtonElement>('.tower-btn[data-type]').forEach(b => {
       const t = b.dataset.type as TowerType;
@@ -126,47 +157,142 @@ export class UIManager {
   // Menus
   // -------------------------------------------------------------------------
 
+  private peekSave(): { wave: number; mode: string; difficulty: string } | null {
+    try {
+      const raw = localStorage.getItem('hexdefender_save');
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return { wave: d.wave ?? 0, mode: d.mode || 'campaign', difficulty: d.difficulty || 'COMMANDER' };
+    } catch { return null; }
+  }
+
+  private mountTitleScreen(bodyHtml: string, mode: 'home' | 'diff' = 'home'): HTMLElement {
+    this.clear();
+    const g = this.game;
+    const save = this.peekSave();
+    const el = document.createElement('div');
+    el.className = 'overlay title-screen'
+      + (mode === 'diff' ? ' diff' : '')
+      + (g.settings.reducedMotion ? ' reduced' : '');
+    el.innerHTML = `
+      <div class="ts-fx" aria-hidden="true">
+        <div class="ts-vignette"></div>
+        <div class="ts-grain"></div>
+        <div class="ts-scan"></div>
+        <div class="ts-sweep"></div>
+        <span class="ts-corner tl"></span>
+        <span class="ts-corner tr"></span>
+        <span class="ts-corner bl"></span>
+        <span class="ts-corner br"></span>
+      </div>
+      <header class="ts-top">
+        <span class="ts-chip">FORTRESS // CENTRAL REACTOR</span>
+        <span class="ts-chip live"><i></i> CORE STABLE</span>
+        <span class="ts-chip">20-WAVE CAMPAIGN</span>
+      </header>
+      <aside class="ts-telemetry" aria-hidden="true">
+        <div>GRID HEX-00</div>
+        <div>CORE 100%</div>
+        <div>ROUTES 03</div>
+        <div>TOWERS 06</div>
+        <div>BOSSES 02</div>
+        <div>STARDATE 26.10.17</div>
+      </aside>
+      <div class="ts-main">
+        <div class="ts-brand">
+          <div class="ts-sigil" aria-hidden="true">
+            <svg viewBox="0 0 80 80">
+              <polygon points="40,4 72,22 72,58 40,76 8,58 8,22" fill="none" stroke="#00E5FF" stroke-width="1.7"/>
+              <polygon points="40,16 62,28 62,52 40,64 18,52 18,28" fill="none" stroke="#00E5FF" stroke-width="1" opacity="0.42"/>
+              <circle cx="40" cy="40" r="6.5" fill="#00E5FF"/>
+              <circle cx="40" cy="40" r="13" fill="none" stroke="#00E5FF" stroke-width="1" opacity="0.7"/>
+              <line x1="40" y1="8" x2="40" y2="22" stroke="#00E5FF" stroke-width="1" opacity="0.7"/>
+            </svg>
+          </div>
+          <div class="ts-kicker">OPERATION LAST LIGHT</div>
+          <h1 class="ts-title">HEX DEFENDER</h1>
+          <h2 class="ts-sub">LAST CORE</h2>
+          <p class="ts-log">Humanity’s last reactor. Three invasion routes. Twenty waves. A briefing walks you through the first.</p>
+        </div>
+        ${bodyHtml}
+      </div>
+      <footer class="ts-foot">
+        <span>BEST // ${g.bestScore}</span>
+        <span>ENDLESS // ${g.bestEndlessWave > 0 ? 'W' + g.bestEndlessWave : '—'}</span>
+        <span>${save ? `SAVE // W${save.wave} ${save.difficulty}` : 'NO SAVE FILE'}</span>
+        <span class="ts-foot-right">CLASSIFIED // CMDR ACCESS</span>
+      </footer>`;
+    this.container.appendChild(el);
+    return el;
+  }
+
   renderMainMenu() {
     const g = this.game;
-    const el = document.createElement('div');
-    el.className = 'overlay';
-    el.innerHTML = `
-      <div class="card" style="text-align:center;min-width:320px">
-        <div class="title">HEX DEFENDER</div>
-        <div class="subtitle">LAST CORE</div>
-        <p class="small" style="margin-bottom:16px">20-wave campaign · 3 routes · 6 towers · 2 bosses</p>
-        <button class="menu-btn" id="btnPlay">NEW CAMPAIGN</button>
-        <button class="menu-btn" id="btnContinue" ${g.hasSave()?'':'disabled'}>CONTINUE</button>
-        <button class="menu-btn" id="btnHow">HOW TO PLAY</button>
-        <button class="menu-btn" id="btnScores">HIGH SCORES</button>
-        <button class="menu-btn" id="btnSettings">SETTINGS</button>
-        <div class="small" style="margin-top:12px">Best score: ${g.bestScore}${g.bestEndlessWave > 0 ? ` · Best endless wave: ${g.bestEndlessWave}` : ''}</div>
-      </div>`;
-    this.container.appendChild(el);
+    const save = this.peekSave();
+    const el = this.mountTitleScreen(`
+      <nav class="ts-nav">
+        <button class="ts-btn primary" id="btnPlay">
+          <span class="ts-idx">01</span>
+          <span class="ts-copy"><span class="ts-label">NEW CAMPAIGN</span><span class="ts-hint">Authorize a 20-wave defense</span></span>
+          <span class="ts-chev">▸</span>
+        </button>
+        <button class="ts-btn" id="btnContinue" ${save ? '' : 'disabled'}>
+          <span class="ts-idx">02</span>
+          <span class="ts-copy"><span class="ts-label">CONTINUE</span><span class="ts-hint">${save ? `Resume wave ${save.wave} · ${save.difficulty}${save.mode === 'endless' ? ' · endless' : ''}` : 'No save file detected'}</span></span>
+          <span class="ts-chev">▸</span>
+        </button>
+        <button class="ts-btn" id="btnHow">
+          <span class="ts-idx">03</span>
+          <span class="ts-copy"><span class="ts-label">HOW TO PLAY</span><span class="ts-hint">Core, hexes, waves, abilities</span></span>
+          <span class="ts-chev">▸</span>
+        </button>
+        <button class="ts-btn" id="btnScores">
+          <span class="ts-idx">04</span>
+          <span class="ts-copy"><span class="ts-label">HIGH SCORES</span><span class="ts-hint">Campaign and endless records</span></span>
+          <span class="ts-chev">▸</span>
+        </button>
+        <button class="ts-btn" id="btnSettings">
+          <span class="ts-idx">05</span>
+          <span class="ts-copy"><span class="ts-label">SETTINGS</span><span class="ts-hint">Audio, quality, motion</span></span>
+          <span class="ts-chev">▸</span>
+        </button>
+      </nav>`);
     el.querySelector('#btnPlay')!.addEventListener('click', () => {
       g.audio.click(); this.renderDifficultySelect();
     });
     el.querySelector('#btnContinue')!.addEventListener('click', () => {
       if (g.loadGame()) { g.audio.click(); this.render(); g.loop.start(); }
     });
-    el.querySelector('#btnHow')!.addEventListener('click', () => { g.state = GS.HOW_TO; g.audio.click(); this.render(); });
-    el.querySelector('#btnScores')!.addEventListener('click', () => { g.state = GS.LEADERBOARD; g.audio.click(); this.render(); });
-    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.MAIN_MENU; g.state = GS.SETTINGS; g.audio.click(); this.render(); });
+    el.querySelector('#btnHow')!.addEventListener('click', () => { g.state = GS.HOW_TO; g.audio.click(); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnScores')!.addEventListener('click', () => { g.state = GS.LEADERBOARD; g.audio.click(); g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.MAIN_MENU; g.state = GS.SETTINGS; g.audio.click(); g.audio.menuOpen(); this.render(); });
   }
 
   renderDifficultySelect() {
     const g = this.game;
-    const el = document.createElement('div');
-    el.className = 'overlay';
-    el.innerHTML = `
-      <div class="card" style="text-align:center">
-        <div class="title" style="font-size:20px">SELECT DIFFICULTY</div>
-        <button class="menu-btn" data-d="ROOKIE">ROOKIE<span class="small"> — forgiving</span></button>
-        <button class="menu-btn" data-d="COMMANDER">COMMANDER<span class="small"> — standard</span></button>
-        <button class="menu-btn" data-d="NIGHTMARE">NIGHTMARE<span class="small"> — brutal</span></button>
-        <button class="menu-btn" style="background:transparent" id="btnBack">BACK</button>
-      </div>`;
-    this.container.appendChild(el);
+    const el = this.mountTitleScreen(`
+      <nav class="ts-nav ts-diff">
+        <div class="ts-section">THREAT AUTHORIZATION</div>
+        <button class="ts-btn ts-diff-btn rook" data-d="ROOKIE">
+          <span class="ts-idx">01</span>
+          <span class="ts-copy"><span class="ts-label">ROOKIE</span><span class="ts-hint">−25% hull · slower hosts · extra salvage</span></span>
+          <span class="ts-tag">FORGIVING</span>
+        </button>
+        <button class="ts-btn ts-diff-btn primary" data-d="COMMANDER">
+          <span class="ts-idx">02</span>
+          <span class="ts-copy"><span class="ts-label">COMMANDER</span><span class="ts-hint">The intended siege — leaks will cost you</span></span>
+          <span class="ts-tag">RECOMMENDED</span>
+        </button>
+        <button class="ts-btn ts-diff-btn night" data-d="NIGHTMARE">
+          <span class="ts-idx">03</span>
+          <span class="ts-copy"><span class="ts-label">NIGHTMARE</span><span class="ts-hint">+30% hull · faster hosts · less salvage</span></span>
+          <span class="ts-tag">BRUTAL</span>
+        </button>
+        <button class="ts-btn ghost" id="btnBack">
+          <span class="ts-idx">←</span>
+          <span class="ts-copy"><span class="ts-label">BACK</span><span class="ts-hint">Return to command</span></span>
+        </button>
+      </nav>`, 'diff');
     el.querySelectorAll('[data-d]').forEach(b => {
       b.addEventListener('click', () => {
         const d = (b as HTMLElement).dataset.d as Difficulty;
@@ -176,7 +302,7 @@ export class UIManager {
         g.loop.start();
       });
     });
-    el.querySelector('#btnBack')!.addEventListener('click', () => { this.render(); });
+    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); this.render(); });
   }
 
   // -------------------------------------------------------------------------
@@ -190,6 +316,31 @@ export class UIManager {
     this.renderTowerDetails();
     this.renderAbilities();
     this.renderBottomBar();
+    this.renderCoach();
+  }
+
+  renderCoach() {
+    const g = this.game;
+    const card = g.getCoach();
+    if (!card) return;
+    const el = document.createElement('div');
+    el.className = 'coach panel';
+    el.id = 'coachCard';
+    el.innerHTML = `
+      <div class="coach-kicker">${card.kicker} · ${card.index}/${card.total}</div>
+      <div class="coach-title" id="coachTitle">${card.title}</div>
+      <div class="coach-body" id="coachBody">${card.body}</div>
+      <div class="coach-hint" id="coachHint">${card.hint}</div>
+      <div class="coach-actions">
+        <button type="button" id="btnCoachSkip" class="coach-skip">Skip briefing</button>
+      </div>`;
+    this.container.appendChild(el);
+    el.querySelector('#btnCoachSkip')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      g.audio.click();
+      g.skipCoach();
+      this.render();
+    });
   }
 
   renderShop() {
@@ -218,7 +369,7 @@ export class UIManager {
         const t = (b as HTMLElement).dataset.type as TowerType;
         g.selectedTowerType = (g.selectedTowerType === t) ? null : t;
         g.selectedTowerId = null;
-        g.audio.click();
+        g.audio.select();
         this.render();
       });
     });
@@ -256,7 +407,11 @@ export class UIManager {
     }
     const routeNames = ['ROUTE A · WEST', 'ROUTE B · NE', 'ROUTE C · SE'];
     const newRoute = def.activateRoute !== undefined && def.activateRoute + 1 > g.routesUnlocked;
-    let html = `<div class="panel-title">${def.endless ? 'ENDLESS INTEL' : `INCOMING — WAVE ${def.number}`}</div>`;
+    const recap = g.lastWaveRecap;
+    let html = recap
+      ? `<div class="wave-recap${recap.perfect ? ' perfect' : ''}">WAVE ${recap.wave} CLEARED · ${recap.killed} down · ${recap.leaked} leaked${recap.perfect ? ' · PERFECT' : ''} · +${recap.energy}⚡</div>`
+      : '';
+    html += `<div class="panel-title">${def.endless ? 'ENDLESS INTEL' : `INCOMING — WAVE ${def.number}`}</div>`;
     html += `<div class="small" style="margin-bottom:6px;color:${def.boss ? '#FF536A' : '#8496B5'}">${def.title}</div>`;
     for (let l = 0; l < 3; l++) {
       if (!lanes.has(l)) continue;
@@ -370,9 +525,9 @@ export class UIManager {
     this.container.appendChild(el);
     el.querySelector('#btnResume')!.addEventListener('click', () => { g.audio.click(); g.resume(); this.render(); });
     el.querySelector('#btnRestart')!.addEventListener('click', () => { g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); });
-    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.PAUSED; g.state = GS.SETTINGS; this.render(); });
-    el.querySelector('#btnSaveExit')!.addEventListener('click', () => { g.saveGame(); g.state = GS.MAIN_MENU; g.loop.stop(); this.render(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { g.saveGame(); g.state = GS.MAIN_MENU; g.loop.stop(); this.render(); });
+    el.querySelector('#btnSettings')!.addEventListener('click', () => { this.settingsReturn = GS.PAUSED; g.state = GS.SETTINGS; g.audio.menuOpen(); this.render(); });
+    el.querySelector('#btnSaveExit')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { g.saveGame(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   // -------------------------------------------------------------------------
@@ -412,7 +567,7 @@ export class UIManager {
     };
     el.querySelector('#btnEndless')!.addEventListener('click', () => { submit(); g.audio.click(); g.startEndless(); this.render(); g.loop.start(); });
     el.querySelector('#btnAgain')!.addEventListener('click', () => { submit(); g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.clearSave(); g.state = GS.MAIN_MENU; g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.clearSave(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   renderGameOver() {
@@ -439,7 +594,7 @@ export class UIManager {
       g.submitScore(input ? input.value : 'CMDR');
     };
     el.querySelector('#btnRetry')!.addEventListener('click', () => { submit(); g.audio.click(); g.resetRun(); g.startRun(g.difficulty); this.render(); g.loop.start(); });
-    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.state = GS.MAIN_MENU; g.loop.stop(); this.render(); });
+    el.querySelector('#btnMenu')!.addEventListener('click', () => { submit(); g.audio.click(); g.paused = false; g.audio.onResume(); g.state = GS.MAIN_MENU; g.audio.startMusic(); g.loop.stop(); this.render(); });
   }
 
   // -------------------------------------------------------------------------
@@ -449,13 +604,23 @@ export class UIManager {
   renderSettings() {
     const g = this.game;
     const el = document.createElement('div');
-    el.className = 'overlay';
+    el.className = 'overlay cinematic';
     el.innerHTML = `
       <div class="card">
         <div class="title" style="font-size:20px">SETTINGS</div>
-        <div class="row"><span>SFX Volume</span><input type="range" min="0" max="1" step="0.05" value="${g.settings.sfxVolume}" id="sfx"></div>
+        <div class="row"><span>Master Volume</span><input type="range" min="0" max="1" step="0.05" value="${g.settings.masterVolume}" id="master"></div>
         <div class="row"><span>Music Volume</span><input type="range" min="0" max="1" step="0.05" value="${g.settings.musicVolume}" id="mus"></div>
-        <div class="row"><span>Quality</span>
+        <div class="row"><span>Sound Effects</span><input type="range" min="0" max="1" step="0.05" value="${g.settings.sfxVolume}" id="sfx"></div>
+        <div class="row"><span>UI Volume</span><input type="range" min="0" max="1" step="0.05" value="${g.settings.uiVolume}" id="ui"></div>
+        <div class="row"><span>Mute All</span><input type="checkbox" id="mute" ${g.settings.muted?'checked':''}></div>
+        <div class="row"><span>Audio Quality</span>
+          <select id="aq">
+            <option value="low" ${g.settings.audioQuality==='low'?'selected':''}>Low</option>
+            <option value="standard" ${g.settings.audioQuality==='standard'?'selected':''}>Standard</option>
+            <option value="high" ${g.settings.audioQuality==='high'?'selected':''}>High</option>
+          </select>
+        </div>
+        <div class="row"><span>Graphics Quality</span>
           <select id="qual">
             <option value="low" ${g.settings.quality==='low'?'selected':''}>Low</option>
             <option value="medium" ${g.settings.quality==='medium'?'selected':''}>Medium</option>
@@ -468,13 +633,18 @@ export class UIManager {
       </div>`;
     this.container.appendChild(el);
     const upd = () => { g.saveSettings(); };
+    el.querySelector('#master')!.addEventListener('input', (e:any) => { g.settings.masterVolume = parseFloat(e.target.value); upd(); });
     el.querySelector('#sfx')!.addEventListener('input', (e:any) => { g.settings.sfxVolume = parseFloat(e.target.value); upd(); });
     el.querySelector('#mus')!.addEventListener('input', (e:any) => { g.settings.musicVolume = parseFloat(e.target.value); upd(); });
+    el.querySelector('#ui')!.addEventListener('input', (e:any) => { g.settings.uiVolume = parseFloat(e.target.value); upd(); });
+    el.querySelector('#mute')!.addEventListener('change', (e:any) => { g.settings.muted = e.target.checked; upd(); });
+    el.querySelector('#aq')!.addEventListener('change', (e:any) => { g.settings.audioQuality = e.target.value; upd(); });
     el.querySelector('#qual')!.addEventListener('change', (e:any) => { g.settings.quality = e.target.value; upd(); g.loadSettings(); });
     el.querySelector('#rm')!.addEventListener('change', (e:any) => { g.settings.reducedMotion = e.target.checked; upd(); });
     el.querySelector('#fps')!.addEventListener('change', (e:any) => { g.settings.showFps = e.target.checked; upd(); });
     el.querySelector('#btnBack')!.addEventListener('click', () => {
       g.audio.click();
+      g.audio.menuClose();
       g.state = this.settingsReturn === GS.PAUSED ? GS.PAUSED : GS.MAIN_MENU;
       this.render();
     });
@@ -484,7 +654,7 @@ export class UIManager {
     const g = this.game;
     const rows = g.leaderboard.map((e,i) => `<tr><td>${i+1}</td><td>${e.name}</td><td>${e.score}</td><td>${e.wave}</td><td>${e.mode}</td><td>${e.difficulty}</td><td>${e.date}</td></tr>`).join('');
     const el = document.createElement('div');
-    el.className = 'overlay';
+    el.className = 'overlay cinematic';
     el.innerHTML = `
       <div class="card">
         <div class="title" style="font-size:20px">HIGH SCORES</div>
@@ -495,34 +665,30 @@ export class UIManager {
         <button class="menu-btn" id="btnBack" style="margin-top:12px">BACK</button>
       </div>`;
     this.container.appendChild(el);
-    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.state = GS.MAIN_MENU; this.render(); });
+    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.state = GS.MAIN_MENU; this.render(); });
   }
 
   renderHowTo() {
     const g = this.game;
     const el = document.createElement('div');
-    el.className = 'overlay';
+    el.className = 'overlay cinematic';
     el.innerHTML = `
-      <div class="card" style="max-width:640px">
+      <div class="card" style="max-width:680px">
         <div class="title" style="font-size:20px">HOW TO PLAY</div>
-        <p class="small" style="line-height:1.65;text-align:left">
-          Defend the central reactor through a <b>20-wave campaign</b> across four acts. Enemies march from
-          portals along three fixed routes. New towers unlock as the campaign progresses:
-          Bolt (W1) → Cryo (W3) → Arc (W5) → Rail (W7) → Nova (W9) → Amplifier (W11).<br><br>
-          <b>Build:</b> pick a tower, click a hex. Drag to pan, wheel/pinch to zoom, C to recenter.
-          <b>Inspect:</b> click a placed tower to upgrade, sell or change targeting.
-          <b>Waves:</b> SPACE or START WAVE. Speed 1–3× with the button or +/-.
-          <b>Abilities:</b> Z = EMP freeze, X = Orbital Strike (click to aim), V = Overdrive.
-          <b>Leak:</b> every enemy that reaches the core damages reactor integrity — at zero, the run ends.<br><br>
-          <b>Towers:</b> Bolt = cheap DPS · Cryo = slow · Arc = chain vs swarms · Rail = armor &amp; bosses ·
-          Nova = area blast vs splits · Amplifier = fire-rate buff.<br><br>
-          <b>Enemies:</b> Bruisers armor up, Dashers sprint, Shield Guards carry barriers, Splitters break in two,
-          Disruptors jam your towers. Bosses at waves 10 (Iron Colossus) and 20 (The Null Archon) have phases —
-          watch for telegraphs.
+        <div class="howto-grid">
+          <div class="howto-step"><div class="howto-n">1</div><div><b>Protect the core</b><div class="small">The glowing reactor in the center is your life. Integrity is the top bar. If it hits 0, the run ends.</div></div></div>
+          <div class="howto-step"><div class="howto-n">2</div><div><b>Build on hexes</b><div class="small">Pick a tower in the right shop, then click a valid hex. You cannot build on routes or portals. Towers fire automatically.</div></div></div>
+          <div class="howto-step"><div class="howto-n">3</div><div><b>Start waves, earn energy</b><div class="small">SPACE or START WAVE. Destroyed enemies and wave bonuses grant ⚡. Spend it between waves — you choose when to continue.</div></div></div>
+          <div class="howto-step"><div class="howto-n">4</div><div><b>Upgrade and use abilities</b><div class="small">Click a tower to upgrade, sell, or retarget. Z EMP freeze · X Orbital Strike · V Overdrive. Speed 1–3× with +/−.</div></div></div>
+        </div>
+        <p class="small" style="line-height:1.65;text-align:left;margin-top:12px">
+          <b>Unlocks:</b> Bolt (W1) → Cryo (W3) → Arc (W5) → Rail (W7) → Nova (W9) → Amplifier (W11).<br>
+          <b>Towers:</b> Bolt = cheap DPS · Cryo = slow · Arc = chain vs groups · Rail = armor &amp; bosses · Nova = blasts · Amp = fire-rate buff.<br>
+          <b>Threats:</b> Bruisers soak fire, Dashers sprint, Shield Guards block, Splitters divide, Disruptors jam towers. Bosses at waves 10 and 20 have telegraphed phases.
         </p>
         <button class="menu-btn" id="btnBack" style="margin-top:12px">BACK</button>
       </div>`;
     this.container.appendChild(el);
-    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.state = GS.MAIN_MENU; this.render(); });
+    el.querySelector('#btnBack')!.addEventListener('click', () => { g.audio.click(); g.audio.menuClose(); g.state = GS.MAIN_MENU; this.render(); });
   }
 }

@@ -61,4 +61,4 @@ src/
 tests/                 routes, campaign data spec, boss phases, full-campaign simulation
 ```
 
-The combat engine is fully data-driven: waves, spawns, unlocks, boss phases and balance are editable in `src/data/` without touching the engine. All visuals are procedural Canvas 2D; all audio is synthesized with the Web Audio API.
+The combat engine is fully data-driven: waves, spawns, unlocks, boss phases and balance are editable in `src/data/` without touching the engine. All visuals are procedural Canvas 2D. All audio is synthesized with the Web Audio API — six tower identities, enemy/reactor/ability effects, and an adaptive four-act electronic soundtrack with unique boss themes. No external audio assets. Master / music / SFX / UI volumes, mute, and audio quality persist in Settings.
