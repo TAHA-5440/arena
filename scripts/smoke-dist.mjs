@@ -81,6 +81,7 @@ globalThis.innerWidth = 1024;
 globalThis.innerHeight = 768;
 
 // --- fake SDK (as on CrazyGames) -------------------------------------------
+const sdkCalls = [];
 let gameplayStart = 0, gameplayStop = 0;
 const sdkSettings = { disableChat: false, muteAudio: false };
 const sdkListeners = [];
@@ -91,8 +92,14 @@ window.CrazyGames = {
       settings: sdkSettings,
       addSettingsChangeListener: (l) => sdkListeners.push(l),
       removeSettingsChangeListener: () => {},
-      gameplayStart: () => { gameplayStart++; },
-      gameplayStop: () => { gameplayStop++; },
+      gameplayStart: () => { gameplayStart++; sdkCalls.push('gameplayStart'); },
+      gameplayStop: () => { gameplayStop++; sdkCalls.push('gameplayStop'); },
+      loadingStart: () => sdkCalls.push('loadingStart'),
+      loadingStop: () => sdkCalls.push('loadingStop'),
+      happytime: () => sdkCalls.push('happytime'),
+      reportGameCompletedPercentage: (p) => sdkCalls.push('reportGameCompletedPercentage:' + p),
+      setGameContext: () => sdkCalls.push('setGameContext'),
+      clearGameContext: () => sdkCalls.push('clearGameContext'),
     },
   },
 };
@@ -115,9 +122,12 @@ const report = {
   gameplayStart, gameplayStop,
 };
 
-// Drive it: start a run, then check the SDK events + audio state.
+// The bundle must land directly in gameplay — no menu click required.
+report.landedInGameplay = g?.state === 'BUILD_PHASE';
+report.callsAfterBoot = sdkCalls.slice();
+
+// Drive it: check the SDK events + audio state.
 if (g) {
-  g.startRun('COMMANDER');
   for (let i = 0; i < 120; i++) g.update(1 / 60);
   report.stateAfterStart = g.state;
   report.gameplayStartAfterRun = gameplayStart;
@@ -132,6 +142,8 @@ if (g) {
   sdkListeners.forEach((l) => l({ ...sdkSettings }));
   report.sdkMutedApplied = g.audio.isSdkMuted;
   report.masterGain = g.audio.master.gain.value;
+
+  report.allCalls = sdkCalls.slice();
 }
 
 report.errors = errors;

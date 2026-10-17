@@ -22,6 +22,12 @@ interface CrazyGameModule {
   removeSettingsChangeListener?: (listener: CrazySettingsListener) => void;
   gameplayStart?: () => void;
   gameplayStop?: () => void;
+  loadingStart?: () => void;
+  loadingStop?: () => void;
+  happytime?: () => void;
+  reportGameCompletedPercentage?: (percent: number) => void;
+  setGameContext?: (context: Record<string, string>) => void;
+  clearGameContext?: () => void;
 }
 
 interface CrazyDataModule {
@@ -64,6 +70,9 @@ export class CrazyGamesSDK {
   private listener: CrazySettingsListener | null = null;
   private gameplayDesired = false;
   private gameplayRunning = false;
+  private loadingStopped = false;
+  /** SDK calls made before the SDK finished initialising, replayed in order. */
+  private pending: Array<() => void> = [];
 
   /** True once the SDK finished initialising (i.e. we are on CrazyGames). */
   get isAvailable(): boolean { return this.ready; }
@@ -92,7 +101,7 @@ export class CrazyGamesSDK {
       this.ready = true;
       this.readSettings();
       this.bindSettingsListener();
-      this.flushGameplayState();
+      this.flushPending();
       this.emit();
       return true;
     })();
@@ -174,6 +183,27 @@ export class CrazyGamesSDK {
     }
   }
 
+  /**
+   * Runs an SDK call now, or queues it until the SDK is ready. The queue
+   * preserves call order, so `loadingStart` -> `loadingStop` -> `gameplayStart`
+   * always reaches the platform in that order.
+   */
+  private queue(fn: () => void) {
+    if (this.ready) {
+      try { fn(); } catch { /* SDK call failed — ignore */ }
+    } else {
+      this.pending.push(fn);
+    }
+  }
+
+  private flushPending() {
+    const queued = this.pending;
+    this.pending = [];
+    for (const fn of queued) {
+      try { fn(); } catch { /* SDK call failed — ignore */ }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Gameplay tracking
   // ---------------------------------------------------------------------------
@@ -181,25 +211,71 @@ export class CrazyGamesSDK {
   /** Player entered / resumed a playable state. */
   gameplayStart() {
     this.gameplayDesired = true;
-    this.flushGameplayState();
+    this.syncGameplay();
   }
 
   /** Player left a playable state (menu, pause, level end). */
   gameplayStop() {
     this.gameplayDesired = false;
-    this.flushGameplayState();
+    this.syncGameplay();
   }
 
-  private flushGameplayState() {
-    if (!this.ready) return;
+  private syncGameplay() {
     if (this.gameplayRunning === this.gameplayDesired) return;
     this.gameplayRunning = this.gameplayDesired;
-    try {
-      if (this.gameplayDesired) this.sdk?.game?.gameplayStart?.();
-      else this.sdk?.game?.gameplayStop?.();
-    } catch {
-      /* gameplay events are best-effort */
+    if (this.gameplayDesired) {
+      // Loading is over once the player reaches a playable state.
+      if (!this.loadingStopped) {
+        this.loadingStopped = true;
+        this.queue(() => this.sdk?.game?.loadingStop?.());
+      }
+      this.queue(() => this.sdk?.game?.gameplayStart?.());
+    } else {
+      this.queue(() => this.sdk?.game?.gameplayStop?.());
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Loading events
+  // ---------------------------------------------------------------------------
+
+  /** The game began loading. */
+  loadingStart() {
+    this.queue(() => this.sdk?.game?.loadingStart?.());
+  }
+
+  /** Loading finished — implied by the first gameplay start, but callable. */
+  loadingStop() {
+    if (this.loadingStopped) return;
+    this.loadingStopped = true;
+    this.queue(() => this.sdk?.game?.loadingStop?.());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Progression & context
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A celebratory moment (boss defeated, new record). Use sparingly — the
+   * platform shows confetti, so it should stay special.
+   */
+  happytime() {
+    this.queue(() => this.sdk?.game?.happytime?.());
+  }
+
+  /** Progress towards completion, 0-100. */
+  reportCompletion(percent: number) {
+    const p = Math.max(0, Math.min(100, Math.round(percent)));
+    this.queue(() => this.sdk?.game?.reportGameCompletedPercentage?.(p));
+  }
+
+  /** Attaches in-game data so support tickets can be reproduced. */
+  setGameContext(context: Record<string, string>) {
+    this.queue(() => this.sdk?.game?.setGameContext?.(context));
+  }
+
+  clearGameContext() {
+    this.queue(() => this.sdk?.game?.clearGameContext?.());
   }
 
   // ---------------------------------------------------------------------------

@@ -19,9 +19,14 @@ npm run smoke:dist           # boot the real production bundle in jsdom
 ## Publishing to CrazyGames
 
 The game ships with the [CrazyGames SDK v3](https://docs.crazygames.com/sdk/intro/) integrated
-(`src/sdk/CrazyGamesSDK.ts`): platform-level audio muting, `gameplayStart`/`gameplayStop`
-tracking, and automatic localStorage progress save. The game stays fully playable when the SDK
+(`src/sdk/CrazyGamesSDK.ts`): platform-level audio muting, `loadingStart`/`loadingStop`,
+`gameplayStart`/`gameplayStop`, `happytime`, completion-percentage reporting, game context for
+support, and automatic localStorage progress save. The game stays fully playable when the SDK
 is absent.
+
+Players land **directly in gameplay** (CrazyGames asks for no title-screen click); the title
+screen is one tap away via PAUSE → MENU, and it carries the difficulty select, high scores and
+the privacy & terms notice.
 
 ```bash
 npm run package:crazygames        # -> release/hex-defender-last-core.zip

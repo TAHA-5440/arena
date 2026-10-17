@@ -220,10 +220,44 @@ export class UIManager {
         <span>BEST // ${g.bestScore}</span>
         <span>ENDLESS // ${g.bestEndlessWave > 0 ? 'W' + g.bestEndlessWave : '—'}</span>
         <span>${save ? `SAVE // W${save.wave} ${save.difficulty}` : 'NO SAVE FILE'}</span>
-        <span class="ts-foot-right">CLASSIFIED // CMDR ACCESS</span>
+        <span class="ts-foot-right"><button class="ts-foot-btn" id="btnPrivacy">PRIVACY</button> &nbsp;·&nbsp; CLASSIFIED // CMDR ACCESS</span>
       </footer>`;
     this.container.appendChild(el);
+    el.querySelector('#btnPrivacy')?.addEventListener('click', () => { g.audio.click(); this.renderPrivacy(); });
     return el;
+  }
+
+  /**
+   * Privacy & terms notice. The game collects no personal data, so this is a
+   * simple non-blocking notice rather than a consent pop-up.
+   */
+  renderPrivacy() {
+    const el = document.createElement('div');
+    el.className = 'overlay cinematic';
+    el.innerHTML = `
+      <div class="card" style="max-width:640px">
+        <div class="title" style="font-size:20px">PRIVACY &amp; TERMS</div>
+        <div class="privacy-body">
+          <p><b>No personal data is collected.</b> Everything the game stores — your save file,
+             high scores and audio settings — lives in this browser's local storage on your own
+             device. Nothing is uploaded to us or to any other server.</p>
+          <p>When you play on CrazyGames, the platform's SDK records anonymous gameplay events
+             (when a run starts and stops, and when a boss is defeated) so the site can report
+             game statistics and run its own features. The platform also keeps your progress in
+             your CrazyGames account when you are signed in, under CrazyGames' own privacy policy.</p>
+          <p>This game makes no network requests of its own, embeds no third-party content, shows
+             no advertising, and never asks for an account, name or email address.</p>
+          <p>You can erase everything the game has stored at any time by clearing this site's
+             data in your browser settings.</p>
+          <p>By continuing to play you accept these terms.</p>
+        </div>
+        <button class="menu-btn" id="btnBack" style="margin-top:14px">CLOSE</button>
+      </div>`;
+    this.container.appendChild(el);
+    el.querySelector('#btnBack')!.addEventListener('click', () => {
+      this.game.audio.click();
+      el.remove();
+    });
   }
 
   renderMainMenu() {
@@ -629,6 +663,7 @@ export class UIManager {
         </div>
         <div class="row"><span>Reduced Motion</span><input type="checkbox" id="rm" ${g.settings.reducedMotion?'checked':''}></div>
         <div class="row"><span>Show FPS</span><input type="checkbox" id="fps" ${g.settings.showFps?'checked':''}></div>
+        <div class="row"><span>Privacy &amp; Terms</span><button class="menu-btn" id="btnPrivacy" style="width:auto;margin:0;padding:5px 12px;font-size:11px">VIEW NOTICE</button></div>
         <button class="menu-btn" id="btnBack" style="margin-top:12px">BACK</button>
       </div>`;
     this.container.appendChild(el);
@@ -642,6 +677,7 @@ export class UIManager {
     el.querySelector('#qual')!.addEventListener('change', (e:any) => { g.settings.quality = e.target.value; upd(); g.loadSettings(); });
     el.querySelector('#rm')!.addEventListener('change', (e:any) => { g.settings.reducedMotion = e.target.checked; upd(); });
     el.querySelector('#fps')!.addEventListener('change', (e:any) => { g.settings.showFps = e.target.checked; upd(); });
+    el.querySelector('#btnPrivacy')!.addEventListener('click', () => { g.audio.click(); this.renderPrivacy(); });
     el.querySelector('#btnBack')!.addEventListener('click', () => {
       g.audio.click();
       g.audio.menuClose();

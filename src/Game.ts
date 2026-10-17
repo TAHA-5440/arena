@@ -175,6 +175,18 @@ export class Game {
   }
 
   /**
+   * CrazyGames requires players to land directly in gameplay (a title screen
+   * costs a click and delays the platform's load-time measurement). Resumes a
+   * saved run when there is one, otherwise starts a fresh run — the coach
+   * cards handle onboarding. The title screen stays reachable via PAUSE → MENU.
+   */
+  autoStart(): boolean {
+    if (this.hasSave() && this.loadGame()) return true;
+    this.startRun(this.settings.difficulty);
+    return true;
+  }
+
+  /**
    * Central state switch. Keeps the CrazyGames gameplay tracking in sync:
    * the platform expects a `gameplayStart` whenever the player is in a
    * playable state and a `gameplayStop` on every break (menu, pause, end).
@@ -524,6 +536,7 @@ export class Game {
     this.waveCompleteBonusGiven = false;
     this.spawnQueue = [];
     this.tutorial = null;
+    this.updateGameContext();
     if (this.coach && !this.coach.dismissed) {
       if (def.number === 1) this.coach.step = 'combat';
       else this.coach.dismissed = true;
@@ -985,6 +998,7 @@ export class Game {
       this.particles.spawn({x:e.x,y:e.y,vx:0,vy:0,color:'#EEF6FF',size:20,life:0.9,shape:'ring',alpha:1});
       this.particles.spawn({x:e.x,y:e.y,vx:0,vy:0,color:'#00E5FF',size:14,life:1.2,shape:'ring',alpha:0.9});
       this.particles.burst(e.x,e.y,'#FFB547',30,300,3,1.0);
+      crazyGamesSDK.happytime();   // beating a boss is a celebration
     }
 
     if (e.type === ET.SPLITTER && !e.splitDone) {
@@ -1344,6 +1358,9 @@ export class Game {
     this.announce('WAVE CLEARED', `+${energyBonus} energy   +${scoreBonus} score`, '#00E5FF', 2.6, false);
     this.lastWaveRecap = { wave: n, killed: this.waveKilled, leaked: this.waveLeaked, perfect, energy: energyBonus };
     this.audio.waveComplete();
+    // Progression milestone for the platform (campaign progress only).
+    if (this.mode === 'campaign') crazyGamesSDK.reportCompletion((n / 20) * 100);
+    this.updateGameContext();
     if (n === 1) {
       this.scheduleAnnounce(2.4, 'BUILD MORE DEFENSES', 'Spend your energy — the next wave is coming', '#00E5FF', 2.6, false);
       if (this.coach && !this.coach.dismissed) this.coach.step = 'cleared';
@@ -1403,6 +1420,8 @@ export class Game {
     this.announce('THE LAST CORE SURVIVES', undefined, '#00E5FF', 3.2, true);
     this.scheduleAnnounce(3.4, 'CAMPAIGN COMPLETE', 'The reactor endures', '#54F7C5', 3.2, true);
     this.updateBestScore();
+    crazyGamesSDK.reportCompletion(100);
+    crazyGamesSDK.happytime();
     this.uiVersion++;
   }
 
@@ -1415,6 +1434,7 @@ export class Game {
     this.updateBestScore();
     if (this.mode === 'endless') this.updateBestEndless();
     this.clearSave();
+    crazyGamesSDK.clearGameContext();
     this.uiVersion++;
   }
 
@@ -1637,6 +1657,9 @@ export class Game {
       this.setState(GS.BUILD_PHASE);
       this.paused = false;
       this.audio.startMusic();
+      // Tell the platform how far this player already got.
+      if (this.mode === 'campaign') crazyGamesSDK.reportCompletion((Math.min(this.wave, 20) / 20) * 100);
+      this.updateGameContext();
       return true;
     } catch(e) { return false; }
   }
@@ -1681,7 +1704,26 @@ export class Game {
     } catch(e){}
   }
   updateBestScore() {
-    if (this.score > this.bestScore) { this.bestScore = this.score; try { localStorage.setItem('hexdefender_best', String(this.bestScore)); } catch(e){} }
+    if (this.score > this.bestScore) {
+      this.bestScore = this.score;
+      try { localStorage.setItem('hexdefender_best', String(this.bestScore)); } catch(e){}
+      crazyGamesSDK.happytime();   // a new record
+    }
+  }
+
+  /**
+   * Attaches the current run state to the platform so support tickets can be
+   * reproduced. Cleared when the run ends.
+   */
+  updateGameContext() {
+    crazyGamesSDK.setGameContext({
+      wave: String(this.wave),
+      act: String(actForWave(Math.min(Math.max(this.wave, 1), 20))),
+      mode: this.mode,
+      difficulty: this.difficulty,
+      score: String(this.score),
+      integrity: `${this.reactorIntegrity}/${this.maxIntegrity}`,
+    });
   }
   updateBestEndless() {
     if (this.wave > this.bestEndlessWave) { this.bestEndlessWave = this.wave; try { localStorage.setItem('hexdefender_bestEndless', String(this.bestEndlessWave)); } catch(e){} }

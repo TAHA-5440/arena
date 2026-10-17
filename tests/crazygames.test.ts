@@ -88,16 +88,33 @@ interface SdkMock {
   listeners: Array<(s: any) => void>;
   gameplayStart: ReturnType<typeof vi.fn>;
   gameplayStop: ReturnType<typeof vi.fn>;
+  loadingStart: ReturnType<typeof vi.fn>;
+  loadingStop: ReturnType<typeof vi.fn>;
+  happytime: ReturnType<typeof vi.fn>;
+  reportGameCompletedPercentage: ReturnType<typeof vi.fn>;
+  setGameContext: ReturnType<typeof vi.fn>;
+  clearGameContext: ReturnType<typeof vi.fn>;
   init: ReturnType<typeof vi.fn>;
+  /** Ordered log of every SDK call, for order assertions. */
+  calls: string[];
   emit: (next: { disableChat?: boolean; muteAudio?: boolean }) => void;
 }
 
 function installSdk(settings: Partial<{ disableChat: boolean; muteAudio: boolean }> = {}): SdkMock {
+  const calls: string[] = [];
+  const track = (name: string) => vi.fn(() => { calls.push(name); });
   const mock: SdkMock = {
     settings: { disableChat: false, muteAudio: false, ...settings },
     listeners: [],
-    gameplayStart: vi.fn(),
-    gameplayStop: vi.fn(),
+    calls,
+    gameplayStart: track('gameplayStart'),
+    gameplayStop: track('gameplayStop'),
+    loadingStart: track('loadingStart'),
+    loadingStop: track('loadingStop'),
+    happytime: track('happytime'),
+    reportGameCompletedPercentage: track('reportGameCompletedPercentage'),
+    setGameContext: track('setGameContext'),
+    clearGameContext: track('clearGameContext'),
     init: vi.fn(() => Promise.resolve()),
     emit: (next) => {
       if (next.disableChat !== undefined) mock.settings.disableChat = next.disableChat;
@@ -114,6 +131,12 @@ function installSdk(settings: Partial<{ disableChat: boolean; muteAudio: boolean
         removeSettingsChangeListener: (l: any) => { mock.listeners = mock.listeners.filter((x) => x !== l); },
         gameplayStart: mock.gameplayStart,
         gameplayStop: mock.gameplayStop,
+        loadingStart: mock.loadingStart,
+        loadingStop: mock.loadingStop,
+        happytime: mock.happytime,
+        reportGameCompletedPercentage: mock.reportGameCompletedPercentage,
+        setGameContext: mock.setGameContext,
+        clearGameContext: mock.clearGameContext,
       },
     },
   };
@@ -263,5 +286,147 @@ describe('CrazyGames SDK integration', () => {
     g.startRun('COMMANDER' as any);
     for (let i = 0; i < 10; i++) g.update(1 / 60);
     expect(g.state).toBe('BUILD_PHASE');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Loading events, direct-to-gameplay landing and progression reporting
+  // ---------------------------------------------------------------------------
+
+  it('reports loading start and stops loading when gameplay begins', async () => {
+    const sdk = installSdk();
+    const g = await createGame();
+    const { crazyGamesSDK } = await import('../src/sdk/CrazyGamesSDK');
+    await g.sdkReady;
+
+    // main.ts reports the start of the load before anything else.
+    crazyGamesSDK.loadingStart();
+    g.startRun('COMMANDER' as any);
+    await g.sdkReady;
+
+    expect(sdk.loadingStart).toHaveBeenCalled();
+    expect(sdk.loadingStop).toHaveBeenCalled();
+    // loadingStart -> loadingStop -> gameplayStart, in that order.
+    expect(sdk.calls).toEqual(['loadingStart', 'loadingStop', 'gameplayStart']);
+  });
+
+  it('lands directly in gameplay without a menu click', async () => {
+    const sdk = installSdk();
+    const g = await createGame();
+    await g.sdkReady;
+
+    // autoStart is what main.ts calls on boot.
+    g.autoStart();
+    await g.sdkReady;
+
+    expect(g.state).toBe('BUILD_PHASE');
+    expect(sdk.gameplayStart).toHaveBeenCalled();
+    expect(sdk.gameplayStop).not.toHaveBeenCalled();
+  });
+
+  it('resumes a saved run instead of starting a fresh one', async () => {
+    const sdk = installSdk();
+    const g = await createGame();
+    await g.sdkReady;
+
+    g.startRun('COMMANDER' as any);
+    for (let i = 0; i < 10; i++) g.update(1 / 60);
+    g.saveGame();
+
+    const g2 = await createGame();
+    await g2.sdkReady;
+    g2.autoStart();
+    await g2.sdkReady;
+
+    expect(g2.state).toBe('BUILD_PHASE');
+    expect(g2.wave).toBe(g.wave);
+  });
+
+  it('reports campaign progression as waves are cleared', async () => {
+    const sdk = installSdk();
+    const g = await createGame();
+    await g.sdkReady;
+
+    g.startRun('COMMANDER' as any);
+    g.wave = 1;
+    g.finishWave();
+    await g.sdkReady;
+
+    expect(sdk.reportGameCompletedPercentage).toHaveBeenCalled();
+    const pct = sdk.reportGameCompletedPercentage.mock.calls.at(-1)![0];
+    expect(pct).toBeGreaterThan(0);
+    expect(pct).toBeLessThanOrEqual(100);
+  });
+
+  it('reports 100% and celebrates on victory', async () => {
+    const sdk = installSdk();
+    const g = await createGame();
+    await g.sdkReady;
+
+    g.startRun('COMMANDER' as any);
+    g.victory();
+    await g.sdkReady;
+
+    expect(sdk.reportGameCompletedPercentage).toHaveBeenCalledWith(100);
+    expect(sdk.happytime).toHaveBeenCalled();
+  });
+
+  it('replays queued calls in order when the SDK initialises late', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => { release = res; });
+    const sdk = installSdk();
+    (sdk.init as any).mockImplementation(() => gate.then(() => undefined));
+
+    const g = await createGame();
+
+    // Calls made before the SDK is ready must be queued, not lost.
+    g.startRun('COMMANDER' as any);
+    expect(sdk.gameplayStart).not.toHaveBeenCalled();
+
+    release();
+    await g.sdkReady;
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(sdk.loadingStop).toHaveBeenCalled();
+    expect(sdk.gameplayStart).toHaveBeenCalled();
+    expect(sdk.calls.indexOf('loadingStop')).toBeLessThan(sdk.calls.indexOf('gameplayStart'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Privacy & terms notice (a Basic Launch checklist requirement).
+// ---------------------------------------------------------------------------
+
+describe('privacy notice', () => {
+  it('is reachable from the title screen and from settings', async () => {
+    installSdk();
+    const g = await createGame();
+    await g.sdkReady;
+
+    const { UIManager } = await import('../src/ui/UIManager');
+    const uiRoot = document.createElement('div');
+    document.body.appendChild(uiRoot);
+    const ui = new UIManager(g, uiRoot);
+
+    // Title screen (reached via PAUSE -> MENU).
+    g.setState('MAIN_MENU' as any);
+    ui.render();
+
+    const titleBtn = uiRoot.querySelector('#btnPrivacy') as HTMLElement | null;
+    expect(titleBtn).toBeTruthy();
+    titleBtn!.click();
+    expect(uiRoot.textContent).toContain('No personal data is collected');
+
+    // Close it and check the settings panel exposes it too.
+    (uiRoot.querySelector('#btnBack') as HTMLElement).click();
+    expect(uiRoot.textContent).not.toContain('No personal data is collected');
+
+    g.setState('SETTINGS' as any);
+    ui.render();
+    const settingsBtn = uiRoot.querySelector('#btnPrivacy') as HTMLElement | null;
+    expect(settingsBtn).toBeTruthy();
+    settingsBtn!.click();
+    expect(uiRoot.textContent).toContain('No personal data is collected');
+
+    uiRoot.remove();
   });
 });
