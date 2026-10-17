@@ -305,7 +305,7 @@ why it is true of this build.
 > account.
 
 *(1,489 characters, 247 words. If the portal caps the field lower, use the
-short version below — 604 characters.)*
+short version below — 515 characters, 79 words.)*
 
 **Short version of the description (if the field is capped):**
 
